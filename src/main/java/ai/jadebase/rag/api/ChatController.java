@@ -4,6 +4,8 @@ import ai.jadebase.rag.application.ChatService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,8 +25,11 @@ public class ChatController {
 
     @PostMapping
     public ChatService.ChatResult ask(@Valid @RequestBody AskRequest request) {
-        return chatService.ask(request.knowledgeBaseId(), request.question());
+        return chatService.ask(request.knowledgeBaseId(), request.conversationId(), request.question(),
+                request.topK(), request.language());
     }
 
-    public record AskRequest(@NotNull UUID knowledgeBaseId, @NotBlank String question) { }
+    public record AskRequest(@NotNull UUID knowledgeBaseId, UUID conversationId,
+                             @NotBlank String question, @Min(1) @Max(12) Integer topK,
+                             String language) { }
 }

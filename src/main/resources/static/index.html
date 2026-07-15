@@ -5,79 +5,256 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="JadeBase 企业智能搜索与 Agent 平台">
     <title>JadeBase</title>
-    <link rel="stylesheet" href="/styles.css?v=phase1">
+    <link rel="stylesheet" href="./styles.css?v=phase2-async-indexing">
 </head>
 <body>
-<div class="app-shell">
-    <header class="topbar">
-        <a class="brand" href="/" aria-label="JadeBase 首页">
-            <span class="brand-mark">J</span>
-            <span>JadeBase</span>
-        </a>
-        <div class="topbar-meta">
-            <span class="status-dot"></span>
-            <span id="modelStatus">本地演示模式</span>
+<svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-sidebar" viewBox="0 0 24 24"><path d="M9 4H4v16h5M13 7v10M9 9l-3 3 3 3M4 4h7a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4"/></symbol>
+    <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M13.5 6.5 17.5 2.5a1.8 1.8 0 0 1 2.5 2.5L16 9l-4 1 1.5-3.5ZM11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
+    <symbol id="icon-user" viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5"/><path d="M5.5 21v-3.5a5 5 0 0 1 5-5h3a5 5 0 0 1 5 5V21"/></symbol>
+    <symbol id="icon-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"/><circle cx="12" cy="12" r=".8" class="icon-fill"/></symbol>
+    <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+    <symbol id="icon-account" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="9" r="3"/><path d="M6.5 19a6 6 0 0 1 11 0"/></symbol>
+    <symbol id="icon-add" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M7 12h10"/></symbol>
+    <symbol id="icon-attachment" viewBox="0 0 24 24"><path d="m8.5 12.5 6.8-6.8a3.2 3.2 0 1 1 4.5 4.5L11 19a5 5 0 0 1-7-7l8.8-8.8M7.5 14.5l7.8-7.8"/></symbol>
+    <symbol id="icon-sliders" viewBox="0 0 24 24"><path d="M6 4v4M6 12v8M12 4v8M12 16v4M18 4v10M18 18v2"/><circle cx="6" cy="10" r="2"/><circle cx="12" cy="14" r="2"/><circle cx="18" cy="16" r="2"/></symbol>
+    <symbol id="icon-hourglass" viewBox="0 0 24 24"><path d="M6 3h12M6 21h12M7 3v4l4 5-4 5v4M17 3v4l-4 5 4 5v4"/></symbol>
+    <symbol id="icon-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></symbol>
+    <symbol id="icon-send" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 3.5-3.5 3.5 3.5M12 8.5V17"/></symbol>
+    <symbol id="icon-sync" viewBox="0 0 24 24"><path d="M4 8a8 8 0 0 1 13-2l2 2M20 16a8 8 0 0 1-13 2l-2-2M19 4v4h-4M5 20v-4h4"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+</svg>
+<div class="app-shell" id="appShell">
+    <aside class="sidebar">
+        <div class="brand-row">
+            <a class="brand" href="./" aria-label="JadeBase 首页">
+                <span class="jade-logo small" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                <span>JadeBase</span>
+            </a>
+            <button class="icon-button sidebar-toggle" id="sidebarToggle" type="button" aria-label="收起侧栏"><svg class="ui-icon"><use href="#icon-sidebar"/></svg></button>
         </div>
-    </header>
 
-    <aside class="knowledge-panel">
-        <div class="panel-heading">
-            <h2>知识库</h2>
-            <button class="quiet-button" id="openCreateButton" type="button">新建</button>
+        <nav class="primary-nav" aria-label="主要功能">
+            <button class="nav-item active" id="newSessionButton" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-edit"/></svg> 新对话</button>
+            <button class="nav-item" id="searchChatsButton" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg> 搜索对话</button>
+        </nav>
+
+        <section class="sidebar-section knowledge-panel">
+            <div class="section-heading">
+                <span>知识库</span>
+                <button class="icon-button" id="openCreateButton" type="button" aria-label="新建知识库"><svg class="ui-icon"><use href="#icon-add"/></svg></button>
+            </div>
+            <nav id="knowledgeList" class="knowledge-list" aria-label="知识库列表"></nav>
+        </section>
+
+        <section class="sidebar-section document-panel">
+            <div class="section-heading">
+                <span>文档</span>
+                <label class="icon-button upload-trigger" for="fileInput" aria-label="上传文档"><svg class="ui-icon"><use href="#icon-add"/></svg></label>
+                <input id="fileInput" type="file" accept=".pdf,.docx,.md,.markdown,.txt,.csv" multiple hidden>
+            </div>
+            <div id="documentList" class="document-list"></div>
+        </section>
+
+        <footer class="sidebar-footer">
+            <button class="footer-item footer-button" id="adminPanelButton" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-settings"/></svg> 管理后台</button>
+            <button class="footer-item account-row" id="accountMenuButton" type="button" aria-haspopup="menu" aria-expanded="false">
+                <span class="avatar" aria-hidden="true"><svg class="ui-icon"><use href="#icon-user"/></svg></span>
+                <span>wang-zhengxin</span>
+                <span class="notification" id="desktopNotificationBadge" hidden></span>
+            </button>
+        </footer>
+
+        <div class="account-popover" id="accountPopover" role="menu" hidden>
+            <div class="account-popover-title">wang-zhengxin@github</div>
+            <div class="account-popover-divider"></div>
+            <button class="account-menu-item" id="openSettingsButton" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-settings"/></svg> 设置</button>
+            <button class="account-menu-item" id="notificationsButton" type="button" role="menuitem"><span class="fallback-icon" aria-hidden="true">♢</span> 通知 <span class="menu-badge" id="menuNotificationBadge" hidden></span></button>
+            <button class="account-menu-item" id="helpButton" type="button" role="menuitem"><span class="fallback-icon" aria-hidden="true">?</span> 帮助与常见问题</button>
+            <button class="account-menu-item danger" id="logoutButton" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-sidebar"/></svg> 退出登录</button>
+            <div class="account-popover-divider"></div>
+            <div class="account-popover-version"><span>JadeBase v0.1.0</span><span class="jade-logo small" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
         </div>
-        <nav id="knowledgeList" class="knowledge-list" aria-label="知识库列表"></nav>
     </aside>
 
     <main class="chat-panel">
-        <div class="chat-heading">
-            <div>
-                <p class="eyebrow">当前知识库</p>
-                <h1 id="activeKnowledgeName">正在加载</h1>
+        <header class="workspace-toolbar">
+            <div class="active-context">
+                <span class="context-label">当前知识库</span>
+                <strong id="activeKnowledgeName">正在加载</strong>
             </div>
-        </div>
+            <div class="model-pill">
+                <span class="model-mark" aria-hidden="true">◆</span>
+                <span id="modelStatus">本地演示</span>
+            </div>
+            <button class="icon-button mobile-settings-button avatar" id="mobileAccountButton" type="button" aria-label="打开用户菜单" aria-haspopup="menu" aria-expanded="false"><svg class="ui-icon"><use href="#icon-account"/></svg></button>
+        </header>
+
         <section id="messages" class="messages" aria-live="polite">
             <div class="empty-state" id="emptyState">
-                <div class="empty-mark">J</div>
-                <h2>从企业知识中找到答案</h2>
-                <p>问题的答案会附带原始文档引用。</p>
+                <span class="jade-logo large" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                <h1>有什么可以帮你？</h1>
+                <p>从当前知识库中检索可靠答案</p>
             </div>
         </section>
+
         <form id="chatForm" class="composer">
             <label class="sr-only" for="questionInput">输入问题</label>
-            <textarea id="questionInput" rows="2" placeholder="询问当前知识库..." required></textarea>
-            <button class="primary-button" id="sendButton" type="submit">发送</button>
+            <textarea id="questionInput" rows="2" placeholder="有什么可以帮你？" required></textarea>
+            <div class="composer-toolbar">
+                <div class="composer-tools">
+                    <label class="tool-button" for="fileInput" title="添加文档" aria-label="添加文档"><svg class="ui-icon"><use href="#icon-attachment"/></svg></label>
+                    <button class="tool-button" id="retrievalSettingsButton" type="button" title="检索设置" aria-label="检索设置"><svg class="ui-icon"><use href="#icon-sliders"/></svg></button>
+                </div>
+                <button class="send-button" id="sendButton" type="submit" aria-label="发送"><svg class="ui-icon"><use href="#icon-send"/></svg></button>
+            </div>
         </form>
+
+        <p class="product-note">JadeBase · Enterprise AI Search &amp; Agent Platform</p>
     </main>
 
-    <aside class="document-panel">
-        <div class="panel-heading">
-            <h2>文档</h2>
-            <label class="primary-button upload-button" for="fileInput">上传</label>
-            <input id="fileInput" type="file" accept=".pdf,.docx,.md,.markdown,.txt,.csv" multiple hidden>
+    <main class="settings-page" id="settingsPage" hidden>
+        <header class="settings-header">
+            <div>
+                <svg class="ui-icon settings-symbol" aria-hidden="true"><use href="#icon-sliders"/></svg>
+                <h1>设置</h1>
+            </div>
+            <button class="secondary-button" id="closeSettingsButton" type="button">返回对话</button>
+        </header>
+
+        <div class="settings-layout">
+            <nav class="settings-nav" aria-label="设置分类">
+                <button class="settings-nav-item active" data-settings-target="general" type="button">通用</button>
+                <button class="settings-nav-item" data-settings-target="chat" type="button">对话偏好</button>
+                <button class="settings-nav-item" data-settings-target="account" type="button">账户与权限</button>
+                <button class="settings-nav-item" data-settings-target="connectors" type="button">连接器</button>
+            </nav>
+
+            <div class="settings-content">
+                <section class="settings-section active" data-settings-section="general">
+                    <h2>个人资料</h2>
+                    <div class="settings-card profile-card">
+                        <label class="setting-row" for="profileNameInput">
+                            <span><strong>显示名称</strong><small>在 JadeBase 中展示的名称</small></span>
+                            <input id="profileNameInput" maxlength="40" placeholder="你的名称">
+                        </label>
+                        <label class="setting-row" for="workRoleInput">
+                            <span><strong>工作角色</strong><small>用于调整回答的专业语境</small></span>
+                            <input id="workRoleInput" maxlength="60" placeholder="例如：后端工程师">
+                        </label>
+                    </div>
+
+                    <h2>外观</h2>
+                    <div class="settings-card appearance-card">
+                        <label class="setting-row" for="colorModeSelect">
+                            <span><strong>颜色模式</strong><small>选择界面的显示模式</small></span>
+                            <select id="colorModeSelect">
+                                <option value="auto">跟随系统</option>
+                                <option value="light">浅色</option>
+                                <option value="dark">深色</option>
+                            </select>
+                        </label>
+                        <div class="background-setting">
+                            <strong>对话背景</strong>
+                            <div class="background-swatches" role="group" aria-label="对话背景">
+                                <button class="background-swatch none active" data-background="none" type="button">无</button>
+                                <button class="background-swatch fog" data-background="fog" type="button" aria-label="雾灰"></button>
+                                <button class="background-swatch sage" data-background="sage" type="button" aria-label="玉雾"></button>
+                                <button class="background-swatch graphite" data-background="graphite" type="button" aria-label="石墨"></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="danger-section">
+                        <h2>危险操作</h2>
+                        <div class="settings-card setting-row">
+                            <span><strong>清空当前对话</strong><small>删除当前页面中的全部问答消息</small></span>
+                            <button class="danger-button" id="clearConversationButton" type="button">清空对话</button>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="settings-section" data-settings-section="chat">
+                    <h2>回答设置</h2>
+                    <div class="settings-card">
+                        <label class="setting-row" for="languageSelect">
+                            <span><strong>回答语言</strong><small>模型默认使用的语言</small></span>
+                            <select id="languageSelect"><option value="zh-CN">简体中文</option><option value="en">English</option></select>
+                        </label>
+                        <label class="setting-row" for="topKInput">
+                            <span><strong>召回片段数</strong><small>每次回答使用的知识片段数量</small></span>
+                            <input id="topKInput" type="number" min="1" max="12" step="1">
+                        </label>
+                        <label class="setting-row" for="citationsToggle">
+                            <span><strong>显示引用</strong><small>在回答下方展示文档来源</small></span>
+                            <input class="toggle-input" id="citationsToggle" type="checkbox">
+                        </label>
+                    </div>
+                </section>
+
+                <section class="settings-section" data-settings-section="account">
+                    <h2>账户</h2>
+                    <div class="settings-card">
+                        <div class="setting-row"><span><strong>GitHub 账户</strong><small>wang-zhengxin</small></span><span class="status-badge">所有者</span></div>
+                        <div class="setting-row"><span><strong>工作区</strong><small>JadeBase 本地工作区</small></span><span class="status-badge neutral">单租户</span></div>
+                    </div>
+                </section>
+
+                <section class="settings-section" data-settings-section="connectors">
+                    <h2>企业连接器</h2>
+                    <div class="connector-grid">
+                        <article class="connector-item"><span class="connector-mark">飞</span><div><strong>飞书知识库</strong><small>尚未配置</small></div><button class="secondary-button connector-button" type="button" data-connector="飞书知识库">配置</button></article>
+                        <article class="connector-item"><span class="connector-mark">企</span><div><strong>企业微信</strong><small>尚未配置</small></div><button class="secondary-button connector-button" type="button" data-connector="企业微信">配置</button></article>
+                        <article class="connector-item"><span class="connector-mark">钉</span><div><strong>钉钉知识库</strong><small>尚未配置</small></div><button class="secondary-button connector-button" type="button" data-connector="钉钉知识库">配置</button></article>
+                    </div>
+                </section>
+            </div>
         </div>
-        <div id="documentList" class="document-list"></div>
-        <p class="format-note">PDF · DOCX · Markdown · TXT · CSV</p>
-    </aside>
+
+        <p class="settings-footer">JadeBase · Enterprise AI Search &amp; Agent Platform</p>
+    </main>
 </div>
 
-<dialog id="createDialog">
+<dialog class="create-dialog" id="createDialog">
     <form id="createForm" method="dialog">
-        <div class="dialog-heading">
-            <h2>新建知识库</h2>
-            <button class="close-button" id="closeCreateButton" type="button" aria-label="关闭">×</button>
+        <header class="create-dialog-header">
+            <svg class="ui-icon knowledge-create-icon" aria-hidden="true"><use href="#icon-folder"/></svg>
+            <button class="close-button" id="closeCreateButton" type="button" aria-label="关闭"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+            <h2>创建知识库</h2>
+            <p>集中管理相关文档，让 JadeBase 基于可靠内容回答问题。</p>
+        </header>
+        <div class="create-dialog-fields">
+            <label for="nameInput">名称</label>
+            <input id="nameInput" name="name" maxlength="80" required autocomplete="off" placeholder="例如：产品知识库">
+            <label for="descriptionInput">描述</label>
+            <textarea id="descriptionInput" name="description" rows="3" maxlength="240" placeholder="简要说明这个知识库包含的内容"></textarea>
         </div>
-        <label for="nameInput">名称</label>
-        <input id="nameInput" name="name" maxlength="80" required autocomplete="off">
-        <label for="descriptionInput">描述</label>
-        <textarea id="descriptionInput" name="description" rows="3" maxlength="240"></textarea>
-        <div class="dialog-actions">
-            <button class="quiet-button" id="cancelCreateButton" type="button">取消</button>
-            <button class="primary-button" type="submit">创建</button>
-        </div>
+        <footer class="dialog-actions">
+            <button class="secondary-button" id="cancelCreateButton" type="button">取消</button>
+            <button class="primary-button" id="createKnowledgeButton" type="submit" disabled>创建知识库</button>
+        </footer>
     </form>
 </dialog>
 
+<dialog class="history-dialog" id="historyDialog">
+    <div class="history-dialog-header">
+        <div>
+            <svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg>
+            <h2>搜索对话</h2>
+        </div>
+        <button class="history-close" id="closeHistoryButton" type="button" aria-label="关闭历史对话"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+    </div>
+    <label class="history-search" for="historySearchInput">
+        <svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg>
+        <input id="historySearchInput" autocomplete="off" placeholder="搜索对话标题">
+    </label>
+    <div class="history-list" id="historyList"></div>
+    <p class="history-empty" id="historyEmpty" hidden>还没有历史对话</p>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="/app.js?v=phase1" defer></script>
+<script src="./app.js?v=phase2-async-indexing" defer></script>
 </body>
 </html>
