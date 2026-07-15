@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="JadeBase 企业智能搜索与 Agent 平台">
+    <title>JadeBase</title>
+    <link rel="stylesheet" href="/styles.css?v=phase1">
+</head>
+<body>
+<div class="app-shell">
+    <header class="topbar">
+        <a class="brand" href="/" aria-label="JadeBase 首页">
+            <span class="brand-mark">J</span>
+            <span>JadeBase</span>
+        </a>
+        <div class="topbar-meta">
+            <span class="status-dot"></span>
+            <span id="modelStatus">本地演示模式</span>
+        </div>
+    </header>
+
+    <aside class="knowledge-panel">
+        <div class="panel-heading">
+            <h2>知识库</h2>
+            <button class="quiet-button" id="openCreateButton" type="button">新建</button>
+        </div>
+        <nav id="knowledgeList" class="knowledge-list" aria-label="知识库列表"></nav>
+    </aside>
+
+    <main class="chat-panel">
+        <div class="chat-heading">
+            <div>
+                <p class="eyebrow">当前知识库</p>
+                <h1 id="activeKnowledgeName">正在加载</h1>
+            </div>
+        </div>
+        <section id="messages" class="messages" aria-live="polite">
+            <div class="empty-state" id="emptyState">
+                <div class="empty-mark">J</div>
+                <h2>从企业知识中找到答案</h2>
+                <p>问题的答案会附带原始文档引用。</p>
+            </div>
+        </section>
+        <form id="chatForm" class="composer">
+            <label class="sr-only" for="questionInput">输入问题</label>
+            <textarea id="questionInput" rows="2" placeholder="询问当前知识库..." required></textarea>
+            <button class="primary-button" id="sendButton" type="submit">发送</button>
+        </form>
+    </main>
+
+    <aside class="document-panel">
+        <div class="panel-heading">
+            <h2>文档</h2>
+            <label class="primary-button upload-button" for="fileInput">上传</label>
+            <input id="fileInput" type="file" accept=".pdf,.docx,.md,.markdown,.txt,.csv" multiple hidden>
+        </div>
+        <div id="documentList" class="document-list"></div>
+        <p class="format-note">PDF · DOCX · Markdown · TXT · CSV</p>
+    </aside>
+</div>
+
+<dialog id="createDialog">
+    <form id="createForm" method="dialog">
+        <div class="dialog-heading">
+            <h2>新建知识库</h2>
+            <button class="close-button" id="closeCreateButton" type="button" aria-label="关闭">×</button>
+        </div>
+        <label for="nameInput">名称</label>
+        <input id="nameInput" name="name" maxlength="80" required autocomplete="off">
+        <label for="descriptionInput">描述</label>
+        <textarea id="descriptionInput" name="description" rows="3" maxlength="240"></textarea>
+        <div class="dialog-actions">
+            <button class="quiet-button" id="cancelCreateButton" type="button">取消</button>
+            <button class="primary-button" type="submit">创建</button>
+        </div>
+    </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="/app.js?v=phase1" defer></script>
+</body>
+</html>

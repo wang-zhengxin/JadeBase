@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: jadebase
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./data/jadebase;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: always
+
+jadebase:
+  model:
+    base-url: ${MODEL_BASE_URL:https://api.deepseek.com}
+    api-key: ${MODEL_API_KEY:}
+    chat-model: ${CHAT_MODEL:deepseek-chat}
+    embedding-base-url: ${EMBEDDING_BASE_URL:${MODEL_BASE_URL:https://api.deepseek.com}}
+    embedding-api-key: ${EMBEDDING_API_KEY:${MODEL_API_KEY:}}
+    embedding-model: ${EMBEDDING_MODEL:text-embedding-v3}
+  retrieval:
+    top-k: ${RAG_TOP_K:6}
+    vector-weight: ${RAG_VECTOR_WEIGHT:0.65}
+    keyword-weight: ${RAG_KEYWORD_WEIGHT:0.35}

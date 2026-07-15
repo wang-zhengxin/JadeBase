@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: jadebase
+      POSTGRES_USER: ${DB_USERNAME:-jadebase}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-jadebase}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-jadebase} -d jadebase"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  jadebase:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/jadebase
+      DB_USERNAME: ${DB_USERNAME:-jadebase}
+      DB_PASSWORD: ${DB_PASSWORD:-jadebase}
+      MODEL_BASE_URL: ${MODEL_BASE_URL:-https://api.deepseek.com}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      CHAT_MODEL: ${CHAT_MODEL:-deepseek-chat}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-v3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
