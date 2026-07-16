@@ -61,3 +61,15 @@ jadebase:
     poll-delay-ms: ${INDEX_POLL_DELAY_MS:500}
     lease-seconds: ${INDEX_LEASE_SECONDS:60}
     recovery-delay-ms: ${INDEX_RECOVERY_DELAY_MS:10000}
+  connectors:
+    feishu:
+      encryption-key: ${CONNECTOR_ENCRYPTION_KEY:jadebase-local-connector-key-change-in-production}
+      api-base-url: ${FEISHU_API_BASE_URL:https://open.feishu.cn/open-apis}
+      web-base-url: ${FEISHU_WEB_BASE_URL:https://feishu.cn}
+      page-size: ${FEISHU_PAGE_SIZE:50}
+      sync-interval-minutes: ${FEISHU_SYNC_INTERVAL_MINUTES:15}
+      max-attempts: ${FEISHU_SYNC_MAX_ATTEMPTS:5}
+      poll-delay-ms: ${FEISHU_SYNC_POLL_DELAY_MS:1000}
+      lease-seconds: ${FEISHU_SYNC_LEASE_SECONDS:120}
+      recovery-delay-ms: ${FEISHU_SYNC_RECOVERY_DELAY_MS:30000}
+      allow-custom-base-url: ${FEISHU_ALLOW_CUSTOM_BASE_URL:false}

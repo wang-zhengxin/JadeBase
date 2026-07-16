@@ -1,7 +1,8 @@
 const isStaticPreview = window.location.protocol === 'file:';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const state = { currentUser: null, knowledgeBases: [], activeId: null, documents: [], conversationId: null,
-    conversations: [], memories: [], documentEvents: null, documentEventKnowledgeBaseId: null };
+    conversations: [], memories: [], documentEvents: null, documentEventKnowledgeBaseId: null,
+    feishuConnections: [], feishuSources: [], feishuTasks: [] };
 
 function iconMarkup(name, className = 'ui-icon') {
     return `<svg class="${className}" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
@@ -44,7 +45,13 @@ const elements = {
     historyList: document.querySelector('#historyList'),
     historyEmpty: document.querySelector('#historyEmpty'),
     modelStatus: document.querySelector('#modelStatus'),
-    toast: document.querySelector('#toast')
+    toast: document.querySelector('#toast'),
+    feishuConnectionDialog: document.querySelector('#feishuConnectionDialog'),
+    feishuConnectionForm: document.querySelector('#feishuConnectionForm'),
+    feishuSourceDialog: document.querySelector('#feishuSourceDialog'),
+    feishuSourceForm: document.querySelector('#feishuSourceForm'),
+    feishuSourceList: document.querySelector('#feishuSourceList'),
+    feishuTaskList: document.querySelector('#feishuTaskList')
 };
 
 const defaultSettings = {
@@ -425,7 +432,8 @@ function renderDocuments() {
     elements.documentList.innerHTML = state.documents.map(item => `
         <article class="document-item">
             <div class="document-row">
-                <div class="document-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                ${item.sourceUrl ? `<a class="document-name source-document-name" href="${escapeHtml(safeHttpUrl(item.sourceUrl))}" target="_blank" rel="noopener noreferrer" title="在飞书中打开 ${escapeHtml(item.name)}">${escapeHtml(item.name)}</a>`
+                    : `<div class="document-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>`}
                 <div class="document-actions">
                     ${item.status === 'FAILED' ? `<button class="retry-button" data-document-retry="${item.id}" type="button" aria-label="重试索引">${iconMarkup('sync')}</button>` : ''}
                     <button class="delete-button" data-document-delete="${item.id}" type="button" aria-label="删除文档">${iconMarkup('close')}</button>
@@ -435,7 +443,15 @@ function renderDocuments() {
                 <span>${item.chunkCount} 个片段 · ${formatBytes(item.sizeBytes)}</span>
                 <span class="document-status ${item.status === 'FAILED' ? 'failed' : ''}" title="${escapeHtml(item.errorMessage || '')}">${statusText(item.status, item.progress)}</span>
             </div>
+            ${item.sourceType === 'FEISHU' ? `<div class="document-source-meta"><span>飞书同步</span>${item.sourceAuthor ? `<span>${escapeHtml(item.sourceAuthor)}</span>` : ''}</div>` : ''}
         </article>`).join('');
+}
+
+function safeHttpUrl(value) {
+    try {
+        const url = new URL(value);
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : '#';
+    } catch { return '#'; }
 }
 
 function statusText(status, progress = 0) {
@@ -446,6 +462,154 @@ function formatBytes(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function loadFeishuConnector() {
+    if (isStaticPreview) {
+        document.querySelector('#feishuConnectionStatus').textContent = '静态预览中不可配置';
+        return;
+    }
+    const [connections, sources, tasks] = await Promise.all([
+        api('/api/v1/connectors/feishu/connections'),
+        api('/api/v1/connectors/feishu/sources'),
+        api('/api/v1/connectors/feishu/sync-tasks')
+    ]);
+    state.feishuConnections = connections;
+    state.feishuSources = sources;
+    state.feishuTasks = tasks;
+    renderFeishuConnector();
+    scheduleFeishuRefresh();
+}
+
+function renderFeishuConnector() {
+    const status = document.querySelector('#feishuConnectionStatus');
+    const manager = document.querySelector('#feishuManager');
+    const connection = state.feishuConnections[0];
+    manager.hidden = !connection;
+    document.querySelector('#configureFeishuButton').textContent = connection ? '管理连接' : '配置';
+    status.textContent = !connection ? '尚未配置'
+        : connection.status === 'CONNECTED'
+            ? `${connection.name} · ${connection.sourceCount} 个来源`
+            : `${connection.name} · ${connection.statusMessage || '连接异常'}`;
+    document.querySelector('#feishuConnectorCard').classList.toggle('connector-error', connection?.status === 'ERROR');
+
+    if (!state.feishuSources.length) {
+        elements.feishuSourceList.innerHTML = '<p class="connector-empty">还没有同步来源</p>';
+    } else {
+        elements.feishuSourceList.innerHTML = state.feishuSources.map(source => {
+            const task = source.latestTask;
+            const running = task && ['QUEUED', 'RUNNING'].includes(task.status);
+            return `<article class="connector-source-item">
+                <span class="connector-source-icon">${iconMarkup(source.sourceType === 'WIKI' ? 'folder' : 'attachment')}</span>
+                <div class="connector-source-copy">
+                    <div><strong>${escapeHtml(source.remoteName)}</strong><span class="connector-type-label">${source.sourceType === 'WIKI' ? 'Wiki' : '文件夹'}</span></div>
+                    <small>${escapeHtml(source.knowledgeBaseName)} · ${source.enabled ? `每 ${formatInterval(source.syncIntervalMinutes)}同步` : '已暂停'}</small>
+                    <span class="connector-source-status ${source.lastSyncStatus === 'FAILED' ? 'failed' : ''}">${escapeHtml(source.lastSyncMessage || '等待首次同步')}</span>
+                </div>
+                <div class="connector-source-actions">
+                    <button class="icon-button ${running ? 'is-spinning' : ''}" data-feishu-sync="${source.id}" type="button" title="立即增量同步" aria-label="立即同步" ${running || !source.enabled ? 'disabled' : ''}>${iconMarkup('sync')}</button>
+                    <button class="secondary-button" data-feishu-toggle="${source.id}" data-enabled="${source.enabled}" type="button">${source.enabled ? '暂停' : '启用'}</button>
+                    <button class="icon-button connector-delete-action" data-feishu-source-delete="${source.id}" type="button" title="删除来源" aria-label="删除来源">${iconMarkup('close')}</button>
+                </div>
+            </article>`;
+        }).join('');
+    }
+
+    if (!state.feishuTasks.length) {
+        elements.feishuTaskList.innerHTML = '<p class="connector-empty">暂无同步任务</p>';
+    } else {
+        elements.feishuTaskList.innerHTML = state.feishuTasks.slice(0, 8).map(task => {
+            const source = state.feishuSources.find(item => item.id === task.sourceId);
+            return `<article class="connector-task-item">
+                <span class="task-status-dot ${task.status.toLowerCase()}"></span>
+                <div><strong>${escapeHtml(source?.remoteName || '已删除来源')}</strong><small>${task.mode === 'FULL' ? '全量同步' : '增量同步'} · ${connectorTaskStatus(task.status)}</small></div>
+                <div class="task-counts"><span>扫描 ${task.scannedCount}</span><span>+${task.createdCount} / ~${task.updatedCount} / -${task.deletedCount}</span></div>
+                <time>${formatConnectorDate(task.completedAt || task.startedAt || task.createdAt)}</time>
+                ${task.status === 'FAILED' ? `<button class="secondary-button" data-feishu-task-retry="${task.id}" type="button">重试</button>` : ''}
+            </article>`;
+        }).join('');
+    }
+}
+
+function connectorTaskStatus(status) {
+    return ({ QUEUED: '等待执行', RUNNING: '同步中', SUCCEEDED: '已完成', FAILED: '失败' })[status] || status;
+}
+
+function formatInterval(minutes) {
+    return minutes < 60 ? `${minutes} 分钟` : `${minutes / 60} 小时`;
+}
+
+function formatConnectorDate(value) {
+    if (!value) return '--';
+    return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+        .format(new Date(value));
+}
+
+function scheduleFeishuRefresh() {
+    window.clearTimeout(scheduleFeishuRefresh.timer);
+    const active = state.feishuTasks.some(task => ['QUEUED', 'RUNNING'].includes(task.status));
+    if (!active || document.querySelector('[data-settings-section="connectors"]:not(.active)')) return;
+    scheduleFeishuRefresh.timer = window.setTimeout(() => {
+        loadFeishuConnector().catch(error => showToast(error.message));
+    }, 1800);
+}
+
+function connectionPayload() {
+    return {
+        name: document.querySelector('#feishuConnectionName').value,
+        appId: document.querySelector('#feishuAppId').value,
+        appSecret: document.querySelector('#feishuAppSecret').value
+    };
+}
+
+function showConnectorResult(id, message, failed = false) {
+    const result = document.querySelector(id);
+    result.textContent = message;
+    result.classList.toggle('failed', failed);
+    result.hidden = false;
+}
+
+function openFeishuConnectionDialog() {
+    const connection = state.feishuConnections[0];
+    elements.feishuConnectionForm.reset();
+    elements.feishuConnectionForm.dataset.connectionId = connection?.id || '';
+    document.querySelector('#feishuConnectionName').value = connection?.name || '';
+    document.querySelector('#feishuAppId').value = connection?.appId || '';
+    document.querySelector('#feishuConnectionResult').hidden = true;
+    elements.feishuConnectionDialog.showModal();
+    document.querySelector(connection ? '#feishuConnectionName' : '#feishuAppId').focus();
+}
+
+async function discoverFeishuSpaces() {
+    const connectionId = document.querySelector('#feishuSourceConnection').value;
+    if (!connectionId) throw new Error('请先选择飞书连接');
+    const button = document.querySelector('#discoverFeishuSpacesButton');
+    button.disabled = true;
+    try {
+        const spaces = await api(`/api/v1/connectors/feishu/connections/${connectionId}/spaces`);
+        const select = document.querySelector('#feishuWikiSpace');
+        select.innerHTML = spaces.map(space => `<option value="${escapeHtml(space.id)}">${escapeHtml(space.name)}</option>`).join('');
+        showConnectorResult('#feishuSourceResult', spaces.length ? `发现 ${spaces.length} 个可访问空间` : '没有发现可访问的 Wiki 空间', !spaces.length);
+    } finally { button.disabled = false; }
+}
+
+function openFeishuSourceDialog() {
+    elements.feishuSourceForm.reset();
+    document.querySelector('#feishuSourceResult').hidden = true;
+    document.querySelector('#feishuSourceConnection').innerHTML = state.feishuConnections
+        .map(connection => `<option value="${connection.id}">${escapeHtml(connection.name)}</option>`).join('');
+    document.querySelector('#feishuTargetKnowledgeBase').innerHTML = state.knowledgeBases
+        .map(item => `<option value="${item.id}" ${item.id === state.activeId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
+    setFeishuSourceType('WIKI');
+    elements.feishuSourceDialog.showModal();
+    discoverFeishuSpaces().catch(error => showConnectorResult('#feishuSourceResult', error.message, true));
+}
+
+function setFeishuSourceType(type) {
+    elements.feishuSourceForm.dataset.sourceType = type;
+    document.querySelectorAll('[data-feishu-source-type]').forEach(button => button.classList.toggle('active', button.dataset.feishuSourceType === type));
+    document.querySelector('#feishuWikiFields').hidden = type !== 'WIKI';
+    document.querySelector('#feishuFolderFields').hidden = type !== 'FOLDER';
 }
 
 function appendMessage(role, text, sources = []) {
@@ -650,6 +814,11 @@ document.querySelectorAll('[data-settings-target]').forEach(button => {
         document.querySelectorAll('[data-settings-section]').forEach(section => {
             section.classList.toggle('active', section.dataset.settingsSection === button.dataset.settingsTarget);
         });
+        if (button.dataset.settingsTarget === 'connectors') {
+            loadFeishuConnector().catch(error => showToast(error.message));
+        } else {
+            window.clearTimeout(scheduleFeishuRefresh.timer);
+        }
     });
 });
 
@@ -809,7 +978,153 @@ document.querySelector('#clearConversationButton').addEventListener('click', asy
     } catch (error) { showToast(error.message); }
 });
 document.querySelectorAll('.connector-button').forEach(button => {
-    button.addEventListener('click', () => showToast(`${button.dataset.connector}将在连接器阶段开放`));
+    if (button.dataset.connector) button.addEventListener('click', () => showToast(`${button.dataset.connector}将在后续连接器阶段开放`));
+});
+
+document.querySelector('#configureFeishuButton').addEventListener('click', openFeishuConnectionDialog);
+document.querySelector('#closeFeishuConnectionButton').addEventListener('click', () => elements.feishuConnectionDialog.close());
+document.querySelector('#testFeishuConnectionButton').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    document.querySelector('#feishuConnectionResult').hidden = true;
+    try {
+        const connectionId = elements.feishuConnectionForm.dataset.connectionId;
+        const payload = connectionPayload();
+        const result = connectionId && !payload.appSecret
+            ? await api(`/api/v1/connectors/feishu/connections/${connectionId}/test`, { method: 'POST' })
+            : await api('/api/v1/connectors/feishu/connections/test', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            });
+        showConnectorResult('#feishuConnectionResult', result.message);
+    } catch (error) { showConnectorResult('#feishuConnectionResult', error.message, true); }
+    finally { button.disabled = false; }
+});
+
+elements.feishuConnectionForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const connectionId = event.currentTarget.dataset.connectionId;
+    const payload = connectionPayload();
+    if (!connectionId && !payload.appSecret) {
+        showConnectorResult('#feishuConnectionResult', '首次配置需要填写 App Secret', true);
+        return;
+    }
+    const button = document.querySelector('#saveFeishuConnectionButton');
+    button.disabled = true;
+    try {
+        await api(`/api/v1/connectors/feishu/connections${connectionId ? `/${connectionId}` : ''}`, {
+            method: connectionId ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        elements.feishuConnectionDialog.close();
+        await loadFeishuConnector();
+        showToast('飞书连接已保存');
+    } catch (error) { showConnectorResult('#feishuConnectionResult', error.message, true); }
+    finally { button.disabled = false; }
+});
+
+document.querySelector('#addFeishuSourceButton').addEventListener('click', openFeishuSourceDialog);
+document.querySelector('#closeFeishuSourceButton').addEventListener('click', () => elements.feishuSourceDialog.close());
+document.querySelector('#cancelFeishuSourceButton').addEventListener('click', () => elements.feishuSourceDialog.close());
+document.querySelectorAll('[data-feishu-source-type]').forEach(button => {
+    button.addEventListener('click', () => setFeishuSourceType(button.dataset.feishuSourceType));
+});
+document.querySelector('#discoverFeishuSpacesButton').addEventListener('click', () => {
+    discoverFeishuSpaces().catch(error => showConnectorResult('#feishuSourceResult', error.message, true));
+});
+document.querySelector('#browseFeishuFolderButton').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const connectionId = document.querySelector('#feishuSourceConnection').value;
+    const input = document.querySelector('#feishuFolderToken');
+    button.disabled = true;
+    try {
+        const token = extractFeishuToken(input.value);
+        const suffix = token ? `?folderToken=${encodeURIComponent(token)}` : '';
+        const result = await api(`/api/v1/connectors/feishu/connections/${connectionId}/folders${suffix}`);
+        input.value = result.folder.id;
+        if (!document.querySelector('#feishuFolderName').value) document.querySelector('#feishuFolderName').value = result.folder.name;
+        showConnectorResult('#feishuSourceResult', `文件夹可访问，发现 ${result.items.length} 个直接子项`);
+    } catch (error) { showConnectorResult('#feishuSourceResult', error.message, true); }
+    finally { button.disabled = false; }
+});
+
+function extractFeishuToken(value) {
+    const trimmed = value.trim();
+    if (!trimmed.includes('/')) return trimmed;
+    try {
+        const url = new URL(trimmed);
+        return url.pathname.split('/').filter(Boolean).at(-1) || '';
+    } catch { return trimmed; }
+}
+
+elements.feishuSourceForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const type = event.currentTarget.dataset.sourceType || 'WIKI';
+    const wiki = document.querySelector('#feishuWikiSpace');
+    const folderToken = extractFeishuToken(document.querySelector('#feishuFolderToken').value);
+    const remoteId = type === 'WIKI' ? wiki.value : folderToken;
+    const remoteName = type === 'WIKI' ? wiki.selectedOptions[0]?.textContent : document.querySelector('#feishuFolderName').value;
+    if (!remoteId) {
+        showConnectorResult('#feishuSourceResult', type === 'WIKI' ? '请先发现并选择 Wiki 空间' : '请填写或验证文件夹 Token', true);
+        return;
+    }
+    const button = document.querySelector('#saveFeishuSourceButton');
+    button.disabled = true;
+    try {
+        await api('/api/v1/connectors/feishu/sources', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                connectionId: document.querySelector('#feishuSourceConnection').value,
+                knowledgeBaseId: document.querySelector('#feishuTargetKnowledgeBase').value,
+                sourceType: type, remoteId, remoteName,
+                syncIntervalMinutes: Number(document.querySelector('#feishuSyncInterval').value)
+            })
+        });
+        elements.feishuSourceDialog.close();
+        await loadFeishuConnector();
+        showToast('同步来源已添加，首次全量同步已入队');
+    } catch (error) { showConnectorResult('#feishuSourceResult', error.message, true); }
+    finally { button.disabled = false; }
+});
+
+elements.feishuSourceList.addEventListener('click', async event => {
+    const syncButton = event.target.closest('[data-feishu-sync]');
+    const toggleButton = event.target.closest('[data-feishu-toggle]');
+    const deleteButton = event.target.closest('[data-feishu-source-delete]');
+    try {
+        if (syncButton) {
+            await api(`/api/v1/connectors/feishu/sources/${syncButton.dataset.feishuSync}/sync`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'INCREMENTAL' })
+            });
+            showToast('增量同步已入队');
+        }
+        if (toggleButton) {
+            await api(`/api/v1/connectors/feishu/sources/${toggleButton.dataset.feishuToggle}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: toggleButton.dataset.enabled !== 'true' })
+            });
+        }
+        if (deleteButton) {
+            if (!window.confirm('确认删除这个同步来源及其已导入文档吗？')) return;
+            await api(`/api/v1/connectors/feishu/sources/${deleteButton.dataset.feishuSourceDelete}`, { method: 'DELETE' });
+            await loadDocuments();
+            showToast('同步来源已删除');
+        }
+        await loadFeishuConnector();
+    } catch (error) { showToast(error.message); }
+});
+
+elements.feishuTaskList.addEventListener('click', async event => {
+    const button = event.target.closest('[data-feishu-task-retry]');
+    if (!button) return;
+    try {
+        await api(`/api/v1/connectors/feishu/sync-tasks/${button.dataset.feishuTaskRetry}/retry`, { method: 'POST' });
+        await loadFeishuConnector();
+        showToast('同步任务已重新入队');
+    } catch (error) { showToast(error.message); }
+});
+document.querySelector('#refreshFeishuButton').addEventListener('click', () => {
+    loadFeishuConnector().catch(error => showToast(error.message));
 });
 
 document.querySelector('#changePasswordForm').addEventListener('submit', async event => {
