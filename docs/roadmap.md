@@ -17,19 +17,22 @@
 - [x] 持久化任务租约、服务端进度事件（SSE）与应用重启恢复
 - [x] RRF 融合、会话 Query Rewrite 和 BGE / Qwen Reranker
 - [x] RAG 评测 API、检索诊断和 Prometheus 可观测性
-- [ ] OCR、表格和图片内容理解（暂缓，后续独立阶段实现）
+- [ ] [OCR、表格和图片内容理解（暂缓）](https://github.com/wang-zhengxin/JadeBase/issues/3)
 
 ## Phase 3 · China Connectors
 
-- [ ] 飞书云文档与知识库
-- [ ] 企业微信文档
-- [ ] 钉钉知识库
-- [ ] 语雀、Gitee、TAPD 和禅道
-- [ ] 增量同步和源权限继承
+- [ ] [飞书云文档与知识库](https://github.com/wang-zhengxin/JadeBase/issues/4)
+- [ ] [企业微信文档与钉钉知识库](https://github.com/wang-zhengxin/JadeBase/issues/5)
+- [ ] [语雀、Gitee、TAPD 和禅道](https://github.com/wang-zhengxin/JadeBase/issues/6)
+- [ ] [增量同步和源权限继承](https://github.com/wang-zhengxin/JadeBase/issues/6)
 
 ## Phase 4 · Agent Workspace
 
-- [ ] Agent 与工具注册中心
-- [ ] MCP 工具接入
-- [ ] 工作流编排和人工确认节点
-- [ ] 企业级 RBAC、SSO、审计和多租户
+- [ ] [Agent 与工具注册中心](https://github.com/wang-zhengxin/JadeBase/issues/7)
+- [ ] [MCP 工具接入](https://github.com/wang-zhengxin/JadeBase/issues/7)
+- [ ] [工作流编排和人工确认节点](https://github.com/wang-zhengxin/JadeBase/issues/8)
+- [ ] [Code Review Agent 旗舰工作流](https://github.com/wang-zhengxin/JadeBase/issues/9)
+
+## Phase 5 · Enterprise Readiness
+
+- [ ] [企业级 RBAC、SSO、审计、多租户和配额治理](https://github.com/wang-zhengxin/JadeBase/issues/10)
