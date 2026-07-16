@@ -31,13 +31,18 @@ public class EmbeddingRouter implements EmbeddingClient {
                 .uri(normalize(properties.embeddingBaseUrl()) + "/v1/embeddings")
                 .header("Authorization", "Bearer " + properties.embeddingApiKey())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("model", properties.embeddingModel(), "input", text))
+                .body(Map.of("model", properties.embeddingModel(), "input", text,
+                        "dimensions", properties.embeddingDimensions()))
                 .retrieve()
                 .body(EmbeddingResponse.class);
         if (response == null || response.data() == null || response.data().isEmpty()) {
             throw new IllegalStateException("Embedding 模型没有返回有效向量");
         }
         List<Double> values = response.data().getFirst().embedding();
+        if (values.size() != properties.embeddingDimensions()) {
+            throw new IllegalStateException("Embedding 维度不匹配：期望 " + properties.embeddingDimensions()
+                    + "，实际 " + values.size());
+        }
         double[] vector = new double[values.size()];
         for (int i = 0; i < values.size(); i++) vector[i] = values.get(i);
         return vector;

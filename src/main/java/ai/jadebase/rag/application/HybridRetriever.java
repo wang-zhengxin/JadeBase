@@ -1,98 +1,90 @@
 package ai.jadebase.rag.application;
 
-import ai.jadebase.knowledge.domain.Chunk;
-import ai.jadebase.knowledge.infra.ChunkRepository;
 import ai.jadebase.rag.domain.EmbeddingClient;
+import ai.jadebase.rag.domain.KeywordSearchStore;
+import ai.jadebase.rag.domain.Reranker;
 import ai.jadebase.rag.domain.RetrievedChunk;
+import ai.jadebase.rag.domain.SearchCandidate;
+import ai.jadebase.rag.domain.VectorSearchStore;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Service
 public class HybridRetriever {
 
-    private static final Pattern LATIN_TOKEN = Pattern.compile("[a-z0-9_\\-]{2,}");
-
-    private final ChunkRepository chunks;
-    private final EmbeddingClient embeddingClient;
-    private final VectorCodec vectorCodec;
+    private final VectorSearchStore vectors;
+    private final KeywordSearchStore keywords;
+    private final EmbeddingClient embeddings;
+    private final Reranker reranker;
     private final RetrievalProperties properties;
+    private final Timer retrievalTimer;
 
-    public HybridRetriever(ChunkRepository chunks, EmbeddingClient embeddingClient,
-                           VectorCodec vectorCodec, RetrievalProperties properties) {
-        this.chunks = chunks;
-        this.embeddingClient = embeddingClient;
-        this.vectorCodec = vectorCodec;
+    public HybridRetriever(VectorSearchStore vectors, KeywordSearchStore keywords, EmbeddingClient embeddings,
+                           Reranker reranker, RetrievalProperties properties, MeterRegistry meters) {
+        this.vectors = vectors;
+        this.keywords = keywords;
+        this.embeddings = embeddings;
+        this.reranker = reranker;
         this.properties = properties;
+        this.retrievalTimer = meters.timer("jadebase.retrieval.duration");
     }
 
-    @Transactional(readOnly = true)
     public List<RetrievedChunk> retrieve(UUID knowledgeBaseId, String query) {
         return retrieve(knowledgeBaseId, query, properties.topK());
     }
 
-    @Transactional(readOnly = true)
     public List<RetrievedChunk> retrieve(UUID knowledgeBaseId, String query, int topK) {
+        return retrieveWithDiagnostics(knowledgeBaseId, query, topK).chunks();
+    }
+
+    public RetrievalResult retrieveWithDiagnostics(UUID knowledgeBaseId, String query, int topK) {
+        long started = System.nanoTime();
         int resultLimit = Math.min(12, Math.max(1, topK));
-        double[] queryVector = embeddingClient.embed(query);
-        Set<String> queryTerms = terms(query);
-        List<RetrievedChunk> ranked = new ArrayList<>();
-        for (Chunk chunk : chunks.findByKnowledgeBaseId(knowledgeBaseId)) {
-            double vectorScore = Math.max(0, cosine(queryVector, vectorCodec.decode(chunk.getEmbedding())));
-            double keywordScore = keywordScore(queryTerms, terms(chunk.getContent()));
-            double score = properties.vectorWeight() * vectorScore + properties.keywordWeight() * keywordScore;
-            ranked.add(new RetrievedChunk(chunk.getId(), chunk.getDocumentId(), chunk.getDocumentName(),
-                    chunk.getChunkIndex(), chunk.getContent(), score));
-        }
-        return ranked.stream()
+        int candidateLimit = Math.max(resultLimit, properties.candidateK());
+        List<SearchCandidate> vectorCandidates = vectors.search(knowledgeBaseId, embeddings.embed(query), candidateLimit);
+        List<SearchCandidate> keywordCandidates = keywords.search(knowledgeBaseId, query, candidateLimit);
+        List<RetrievedChunk> fused = reciprocalRankFusion(vectorCandidates, keywordCandidates, candidateLimit);
+        List<RetrievedChunk> result = properties.rerankEnabled()
+                ? reranker.rerank(query, fused, resultLimit)
+                : fused.stream().limit(resultLimit).toList();
+        long elapsedMillis = Duration.ofNanos(System.nanoTime() - started).toMillis();
+        retrievalTimer.record(elapsedMillis, java.util.concurrent.TimeUnit.MILLISECONDS);
+        return new RetrievalResult(result, new RetrievalDiagnostics(query, vectorCandidates.size(),
+                keywordCandidates.size(), fused.size(), reranker.configured() && properties.rerankEnabled(), elapsedMillis));
+    }
+
+    List<RetrievedChunk> reciprocalRankFusion(List<SearchCandidate> vectorCandidates,
+                                              List<SearchCandidate> keywordCandidates, int limit) {
+        Map<UUID, Double> scores = new HashMap<>();
+        Map<UUID, SearchCandidate> candidates = new LinkedHashMap<>();
+        accumulate(vectorCandidates, scores, candidates);
+        accumulate(keywordCandidates, scores, candidates);
+        return candidates.values().stream()
+                .map(candidate -> candidate.retrieved(scores.get(candidate.chunkId())))
                 .sorted((left, right) -> Double.compare(right.score(), left.score()))
-                .filter(item -> item.score() > 0.01)
-                .limit(resultLimit)
+                .limit(limit)
                 .toList();
     }
 
-    double cosine(double[] left, double[] right) {
-        if (left.length == 0 || left.length != right.length) return 0;
-        double dot = 0;
-        double leftNorm = 0;
-        double rightNorm = 0;
-        for (int i = 0; i < left.length; i++) {
-            dot += left[i] * right[i];
-            leftNorm += left[i] * left[i];
-            rightNorm += right[i] * right[i];
+    private void accumulate(List<SearchCandidate> ranked, Map<UUID, Double> scores,
+                            Map<UUID, SearchCandidate> candidates) {
+        for (int index = 0; index < ranked.size(); index++) {
+            SearchCandidate candidate = ranked.get(index);
+            candidates.putIfAbsent(candidate.chunkId(), candidate);
+            scores.merge(candidate.chunkId(), 1.0 / (properties.rrfK() + index + 1), Double::sum);
         }
-        if (leftNorm == 0 || rightNorm == 0) return 0;
-        return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
     }
 
-    private double keywordScore(Set<String> query, Set<String> content) {
-        if (query.isEmpty()) return 0;
-        long matches = query.stream().filter(content::contains).count();
-        return (double) matches / query.size();
-    }
-
-    Set<String> terms(String text) {
-        String normalized = text.toLowerCase(Locale.ROOT);
-        Set<String> result = new HashSet<>();
-        Matcher matcher = LATIN_TOKEN.matcher(normalized);
-        while (matcher.find()) result.add(matcher.group());
-
-        String chinese = normalized.replaceAll("[^\\p{IsHan}]", "");
-        int[] points = chinese.codePoints().toArray();
-        for (int i = 0; i < points.length; i++) {
-            result.add(new String(Character.toChars(points[i])));
-            if (i + 1 < points.length) {
-                result.add(new String(Character.toChars(points[i])) + new String(Character.toChars(points[i + 1])));
-            }
-        }
-        return result;
-    }
+    public record RetrievalResult(List<RetrievedChunk> chunks, RetrievalDiagnostics diagnostics) { }
+    public record RetrievalDiagnostics(String query, int vectorCandidates, int keywordCandidates,
+                                       int fusedCandidates, boolean reranked, long elapsedMillis) { }
 }

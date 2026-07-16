@@ -1,5 +1,6 @@
 const isStaticPreview = window.location.protocol === 'file:';
-const state = { knowledgeBases: [], activeId: null, documents: [], conversationId: null, conversations: [] };
+const state = { knowledgeBases: [], activeId: null, documents: [], conversationId: null, conversations: [],
+    documentEvents: null, documentEventKnowledgeBaseId: null };
 
 function iconMarkup(name, className = 'ui-icon') {
     return `<svg class="${className}" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
@@ -253,13 +254,37 @@ async function loadDocuments() {
     }
     state.documents = await api(`/api/v1/knowledge-bases/${state.activeId}/documents`);
     renderDocuments();
+    connectDocumentEvents();
     scheduleDocumentPolling();
+}
+
+function connectDocumentEvents() {
+    if (isStaticPreview || !state.activeId || typeof EventSource === 'undefined') return;
+    if (state.documentEvents && state.documentEventKnowledgeBaseId === state.activeId) return;
+    state.documentEvents?.close();
+    state.documentEventKnowledgeBaseId = state.activeId;
+    const events = new EventSource(`/api/v1/knowledge-bases/${state.activeId}/documents/events`);
+    state.documentEvents = events;
+    events.addEventListener('snapshot', event => {
+        state.documents = JSON.parse(event.data);
+        renderDocuments();
+    });
+    events.addEventListener('document', event => {
+        const document = JSON.parse(event.data);
+        const index = state.documents.findIndex(item => item.id === document.id);
+        if (index >= 0) state.documents[index] = document;
+        else state.documents.unshift(document);
+        renderDocuments();
+    });
+    events.onopen = () => window.clearTimeout(scheduleDocumentPolling.timer);
+    events.onerror = () => scheduleDocumentPolling();
 }
 
 function scheduleDocumentPolling() {
     window.clearTimeout(scheduleDocumentPolling.timer);
     const pending = state.documents.some(item => item.status === 'QUEUED' || item.status === 'PROCESSING');
     if (!pending || isStaticPreview) return;
+    if (state.documentEvents?.readyState === EventSource.OPEN) return;
     scheduleDocumentPolling.timer = window.setTimeout(() => {
         loadDocuments().catch(error => showToast(error.message));
     }, 1200);

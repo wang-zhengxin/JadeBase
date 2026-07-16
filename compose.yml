@@ -27,6 +27,11 @@ services:
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-v3}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-384}
+      RAG_SEARCH_STORE: postgres
+      RERANKER_BASE_URL: ${RERANKER_BASE_URL:-}
+      RERANKER_API_KEY: ${RERANKER_API_KEY:-}
+      RERANKER_MODEL: ${RERANKER_MODEL:-bge-reranker-v2-m3}
     depends_on:
       postgres:
         condition: service_healthy

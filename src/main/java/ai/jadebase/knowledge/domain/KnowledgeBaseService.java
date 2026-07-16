@@ -1,11 +1,12 @@
 package ai.jadebase.knowledge.domain;
 
 import ai.jadebase.knowledge.infra.ChunkRepository;
+import ai.jadebase.knowledge.infra.ChunkTermRepository;
+import ai.jadebase.knowledge.infra.DocumentIndexTaskRepository;
 import ai.jadebase.knowledge.infra.DocumentRepository;
 import ai.jadebase.knowledge.infra.DocumentPayloadRepository;
 import ai.jadebase.knowledge.infra.KnowledgeBaseRepository;
 import jakarta.persistence.EntityNotFoundException;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,16 +22,21 @@ public class KnowledgeBaseService {
     private final DocumentRepository documents;
     private final DocumentPayloadRepository payloads;
     private final ChunkRepository chunks;
-    private final ApplicationEventPublisher events;
+    private final ChunkTermRepository chunkTerms;
+    private final DocumentIndexTaskRepository tasks;
+    private final DocumentIndexQueue indexQueue;
 
     public KnowledgeBaseService(KnowledgeBaseRepository knowledgeBases, DocumentRepository documents,
                                 DocumentPayloadRepository payloads, ChunkRepository chunks,
-                                ApplicationEventPublisher events) {
+                                ChunkTermRepository chunkTerms, DocumentIndexTaskRepository tasks,
+                                DocumentIndexQueue indexQueue) {
         this.knowledgeBases = knowledgeBases;
         this.documents = documents;
         this.payloads = payloads;
         this.chunks = chunks;
-        this.events = events;
+        this.chunkTerms = chunkTerms;
+        this.tasks = tasks;
+        this.indexQueue = indexQueue;
     }
 
     @Transactional
@@ -57,7 +63,7 @@ public class KnowledgeBaseService {
         String name = file.getOriginalFilename() == null ? "document" : file.getOriginalFilename();
         Document document = documents.save(new Document(knowledgeBaseId, name, file.getContentType(), file.getSize()));
         payloads.save(new DocumentPayload(document.getId(), name, file.getContentType(), file.getBytes()));
-        events.publishEvent(new DocumentIndexRequested(document.getId()));
+        indexQueue.enqueue(document.getId());
         return document;
     }
 
@@ -68,8 +74,36 @@ public class KnowledgeBaseService {
                 .orElseThrow(() -> new EntityNotFoundException("文档不存在"));
         document.queueForRetry();
         documents.save(document);
-        events.publishEvent(new DocumentIndexRequested(documentId));
+        indexQueue.enqueue(documentId);
         return document;
+    }
+
+    @Transactional
+    public Document reindexDocument(UUID knowledgeBaseId, UUID documentId) {
+        Document document = documents.findById(documentId)
+                .filter(value -> value.getKnowledgeBaseId().equals(knowledgeBaseId))
+                .orElseThrow(() -> new EntityNotFoundException("文档不存在"));
+        if (!payloads.existsById(documentId)) throw new IllegalStateException("文档原始内容不存在，无法重新索引");
+        document.queueForReindex();
+        documents.save(document);
+        indexQueue.enqueue(documentId);
+        return document;
+    }
+
+    @Transactional
+    public List<Document> reindexKnowledgeBase(UUID knowledgeBaseId) {
+        requireKnowledgeBase(knowledgeBaseId);
+        return documents.findByKnowledgeBaseIdOrderByCreatedAtDesc(knowledgeBaseId).stream()
+                .filter(document -> document.getStatus() != Document.Status.QUEUED
+                        && document.getStatus() != Document.Status.PROCESSING)
+                .filter(document -> payloads.existsById(document.getId()))
+                .map(document -> {
+                    document.queueForReindex();
+                    documents.save(document);
+                    indexQueue.enqueue(document.getId());
+                    return document;
+                })
+                .toList();
     }
 
     @Transactional
@@ -77,7 +111,9 @@ public class KnowledgeBaseService {
         Document document = documents.findById(documentId)
                 .filter(value -> value.getKnowledgeBaseId().equals(knowledgeBaseId))
                 .orElseThrow(() -> new EntityNotFoundException("文档不存在"));
+        chunkTerms.deleteByDocumentId(documentId);
         chunks.deleteByDocumentId(documentId);
+        tasks.deleteByDocumentId(documentId);
         if (payloads.existsById(documentId)) {
             payloads.deleteById(documentId);
         }
