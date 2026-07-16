@@ -65,16 +65,19 @@ public class DocumentIndexingService {
                 taskState.progress(documentId, 30 + (int) Math.round(65.0 * (i + 1) / parts.size()));
                 queue.heartbeat(taskId);
             }
-            taskState.replaceChunksAndComplete(documentId, replacements);
+            boolean pendingReindex = taskState.replaceChunksAndComplete(documentId, replacements);
             queue.succeed(taskId);
+            if (pendingReindex) queue.enqueue(documentId);
             indexingSuccess.increment();
         } catch (RuntimeException | IOException exception) {
+            boolean pendingReindex = false;
             try {
-                taskState.fail(documentId, exception.getMessage());
+                pendingReindex = taskState.fail(documentId, exception.getMessage());
             } catch (EntityNotFoundException ignored) {
                 // The document may have been intentionally deleted while the worker was running.
             }
             queue.fail(taskId, exception.getMessage());
+            if (pendingReindex) queue.enqueue(documentId);
             indexingFailure.increment();
         } finally {
             sample.stop(indexingTimer);

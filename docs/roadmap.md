@@ -21,7 +21,7 @@
 
 ## Phase 3 · China Connectors
 
-- [ ] [飞书云文档与知识库](https://github.com/wang-zhengxin/JadeBase/issues/4)
+- [x] [飞书云文档与知识库](https://github.com/wang-zhengxin/JadeBase/issues/4)
 - [ ] [企业微信文档与钉钉知识库](https://github.com/wang-zhengxin/JadeBase/issues/5)
 - [ ] [语雀、Gitee、TAPD 和禅道](https://github.com/wang-zhengxin/JadeBase/issues/6)
 - [ ] [增量同步和源权限继承](https://github.com/wang-zhengxin/JadeBase/issues/6)

@@ -303,9 +303,26 @@
                 <section class="settings-section" data-settings-section="connectors">
                     <h2>企业连接器</h2>
                     <div class="connector-grid">
-                        <article class="connector-item"><span class="connector-mark">飞</span><div><strong>飞书知识库</strong><small>尚未配置</small></div><button class="secondary-button connector-button" type="button" data-connector="飞书知识库">配置</button></article>
+                        <article class="connector-item" id="feishuConnectorCard">
+                            <span class="connector-mark">飞</span>
+                            <div><strong>飞书云文档</strong><small id="feishuConnectionStatus">尚未配置</small></div>
+                            <button class="secondary-button connector-button" id="configureFeishuButton" type="button">配置</button>
+                        </article>
                         <article class="connector-item"><span class="connector-mark">企</span><div><strong>企业微信</strong><small>尚未配置</small></div><button class="secondary-button connector-button" type="button" data-connector="企业微信">配置</button></article>
                         <article class="connector-item"><span class="connector-mark">钉</span><div><strong>钉钉知识库</strong><small>尚未配置</small></div><button class="secondary-button connector-button" type="button" data-connector="钉钉知识库">配置</button></article>
+                    </div>
+
+                    <div class="feishu-manager" id="feishuManager" hidden>
+                        <div class="connector-section-heading">
+                            <div><h2>同步来源</h2><p>Wiki 空间和云盘文件夹将持续同步到所选知识库。</p></div>
+                            <button class="secondary-button connector-add-source" id="addFeishuSourceButton" type="button"><svg class="ui-icon"><use href="#icon-add"/></svg> 添加来源</button>
+                        </div>
+                        <div class="connector-source-list" id="feishuSourceList"></div>
+                        <div class="connector-section-heading activity-heading">
+                            <div><h2>最近任务</h2><p>查看增量扫描、文档更新和失败重试。</p></div>
+                            <button class="icon-button" id="refreshFeishuButton" type="button" title="刷新状态" aria-label="刷新连接器状态"><svg class="ui-icon"><use href="#icon-sync"/></svg></button>
+                        </div>
+                        <div class="connector-task-list" id="feishuTaskList"></div>
                     </div>
                 </section>
             </div>
@@ -350,6 +367,75 @@
     </label>
     <div class="history-list" id="historyList"></div>
     <p class="history-empty" id="historyEmpty" hidden>还没有历史对话</p>
+</dialog>
+
+<dialog class="create-dialog connector-dialog" id="feishuConnectionDialog">
+    <form id="feishuConnectionForm">
+        <header class="create-dialog-header">
+            <span class="connector-dialog-mark">飞</span>
+            <button class="close-button" id="closeFeishuConnectionButton" type="button" aria-label="关闭"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+            <h2>配置飞书连接</h2>
+            <p>使用企业自建应用凭证访问已授权的云文档与知识空间。</p>
+        </header>
+        <div class="create-dialog-fields">
+            <label for="feishuConnectionName">连接名称</label>
+            <input id="feishuConnectionName" maxlength="120" autocomplete="off" placeholder="例如：研发飞书空间" required>
+            <label for="feishuAppId">App ID</label>
+            <input id="feishuAppId" maxlength="120" autocomplete="off" placeholder="cli_xxxxxxxxxxxxx" required>
+            <label for="feishuAppSecret">App Secret</label>
+            <input id="feishuAppSecret" type="password" autocomplete="new-password" placeholder="已保存时留空可保留原凭证">
+            <p class="connector-form-note">凭证会加密保存，页面与接口不会返回 App Secret。</p>
+            <p class="connector-form-result" id="feishuConnectionResult" hidden></p>
+        </div>
+        <footer class="dialog-actions connector-dialog-actions">
+            <button class="secondary-button" id="testFeishuConnectionButton" type="button">测试连接</button>
+            <button class="primary-button" id="saveFeishuConnectionButton" type="submit">保存连接</button>
+        </footer>
+    </form>
+</dialog>
+
+<dialog class="create-dialog connector-dialog" id="feishuSourceDialog">
+    <form id="feishuSourceForm">
+        <header class="create-dialog-header">
+            <svg class="ui-icon knowledge-create-icon" aria-hidden="true"><use href="#icon-folder"/></svg>
+            <button class="close-button" id="closeFeishuSourceButton" type="button" aria-label="关闭"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+            <h2>添加飞书同步来源</h2>
+            <p>选择飞书内容范围，并绑定到 JadeBase 知识库。</p>
+        </header>
+        <div class="create-dialog-fields connector-source-fields">
+            <label for="feishuSourceConnection">飞书连接</label>
+            <select id="feishuSourceConnection" required></select>
+            <span class="field-label">来源类型</span>
+            <div class="source-type-control" role="group" aria-label="来源类型">
+                <button class="active" data-feishu-source-type="WIKI" type="button">Wiki 空间</button>
+                <button data-feishu-source-type="FOLDER" type="button">云盘文件夹</button>
+            </div>
+            <div class="source-discovery" id="feishuWikiFields">
+                <label for="feishuWikiSpace">Wiki 空间</label>
+                <div class="field-action-row"><select id="feishuWikiSpace"></select><button class="secondary-button" id="discoverFeishuSpacesButton" type="button">发现空间</button></div>
+            </div>
+            <div class="source-discovery" id="feishuFolderFields" hidden>
+                <label for="feishuFolderToken">文件夹 Token</label>
+                <div class="field-action-row"><input id="feishuFolderToken" autocomplete="off" placeholder="留空浏览我的空间根目录"><button class="secondary-button" id="browseFeishuFolderButton" type="button">验证</button></div>
+                <label for="feishuFolderName">来源名称</label>
+                <input id="feishuFolderName" maxlength="255" autocomplete="off" placeholder="例如：产品文档">
+            </div>
+            <label for="feishuTargetKnowledgeBase">目标知识库</label>
+            <select id="feishuTargetKnowledgeBase" required></select>
+            <label for="feishuSyncInterval">增量同步间隔</label>
+            <select id="feishuSyncInterval">
+                <option value="5">每 5 分钟</option>
+                <option value="15" selected>每 15 分钟</option>
+                <option value="60">每小时</option>
+                <option value="360">每 6 小时</option>
+            </select>
+            <p class="connector-form-result" id="feishuSourceResult" hidden></p>
+        </div>
+        <footer class="dialog-actions">
+            <button class="secondary-button" id="cancelFeishuSourceButton" type="button">取消</button>
+            <button class="primary-button" id="saveFeishuSourceButton" type="submit">添加并同步</button>
+        </footer>
+    </form>
 </dialog>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>

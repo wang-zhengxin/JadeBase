@@ -48,21 +48,23 @@ public class DocumentTaskStateService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void replaceChunksAndComplete(UUID documentId, List<Chunk> replacements) {
+    public boolean replaceChunksAndComplete(UUID documentId, List<Chunk> replacements) {
         Document document = require(documentId);
         chunkTerms.deleteByDocumentId(documentId);
         chunks.deleteByDocumentId(documentId);
         List<Chunk> savedChunks = chunks.saveAllAndFlush(replacements);
         savedChunks.forEach(chunk -> chunkTerms.saveAll(termIndex.termsFor(chunk)));
-        document.markReady(savedChunks.size());
+        boolean pendingReindex = document.completeIndexing(savedChunks.size());
         progressBroker.publish(documents.save(document));
+        return pendingReindex;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void fail(UUID documentId, String message) {
+    public boolean fail(UUID documentId, String message) {
         Document document = require(documentId);
-        document.markFailed(message == null ? "索引任务执行失败" : message);
+        boolean pendingReindex = document.failIndexing(message == null ? "索引任务执行失败" : message);
         progressBroker.publish(documents.save(document));
+        return pendingReindex;
     }
 
     private Document require(UUID documentId) {

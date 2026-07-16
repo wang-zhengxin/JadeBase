@@ -2,6 +2,7 @@ package ai.jadebase.common;
 
 import ai.jadebase.identity.domain.AuthenticationException;
 import ai.jadebase.identity.domain.IdentityConflictException;
+import ai.jadebase.connector.feishu.FeishuApiException;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,9 +21,14 @@ public class ApiExceptionHandler {
         return error(HttpStatus.NOT_FOUND, exception.getMessage());
     }
 
-    @ExceptionHandler({IllegalArgumentException.class, MethodArgumentNotValidException.class})
+    @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class, MethodArgumentNotValidException.class})
     ResponseEntity<Map<String, Object>> badRequest(Exception exception) {
         return error(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
+    @ExceptionHandler(FeishuApiException.class)
+    ResponseEntity<Map<String, Object>> connectorError(FeishuApiException exception) {
+        return error(HttpStatus.BAD_GATEWAY, exception.getMessage());
     }
 
     @ExceptionHandler(AuthenticationException.class)
