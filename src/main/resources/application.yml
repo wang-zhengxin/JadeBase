@@ -37,6 +37,8 @@ management:
         enabled: true
 
 jadebase:
+  auth:
+    secure-cookie: ${AUTH_SECURE_COOKIE:false}
   model:
     base-url: ${MODEL_BASE_URL:https://api.deepseek.com}
     api-key: ${MODEL_API_KEY:}
