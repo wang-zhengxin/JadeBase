@@ -2,10 +2,10 @@ package ai.jadebase.knowledge.domain;
 
 import ai.jadebase.knowledge.infra.ChunkRepository;
 import ai.jadebase.knowledge.infra.DocumentRepository;
+import ai.jadebase.knowledge.infra.DocumentPayloadRepository;
 import ai.jadebase.knowledge.infra.KnowledgeBaseRepository;
-import ai.jadebase.rag.application.VectorCodec;
-import ai.jadebase.rag.domain.EmbeddingClient;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,23 +19,18 @@ public class KnowledgeBaseService {
 
     private final KnowledgeBaseRepository knowledgeBases;
     private final DocumentRepository documents;
+    private final DocumentPayloadRepository payloads;
     private final ChunkRepository chunks;
-    private final DocumentExtractor extractor;
-    private final ChunkingService chunkingService;
-    private final EmbeddingClient embeddingClient;
-    private final VectorCodec vectorCodec;
+    private final ApplicationEventPublisher events;
 
     public KnowledgeBaseService(KnowledgeBaseRepository knowledgeBases, DocumentRepository documents,
-                                ChunkRepository chunks, DocumentExtractor extractor,
-                                ChunkingService chunkingService, EmbeddingClient embeddingClient,
-                                VectorCodec vectorCodec) {
+                                DocumentPayloadRepository payloads, ChunkRepository chunks,
+                                ApplicationEventPublisher events) {
         this.knowledgeBases = knowledgeBases;
         this.documents = documents;
+        this.payloads = payloads;
         this.chunks = chunks;
-        this.extractor = extractor;
-        this.chunkingService = chunkingService;
-        this.embeddingClient = embeddingClient;
-        this.vectorCodec = vectorCodec;
+        this.events = events;
     }
 
     @Transactional
@@ -61,21 +56,20 @@ public class KnowledgeBaseService {
         if (file.isEmpty()) throw new IllegalArgumentException("上传文件不能为空");
         String name = file.getOriginalFilename() == null ? "document" : file.getOriginalFilename();
         Document document = documents.save(new Document(knowledgeBaseId, name, file.getContentType(), file.getSize()));
-        try {
-            String content = extractor.extract(file);
-            List<String> parts = chunkingService.split(content);
-            for (int i = 0; i < parts.size(); i++) {
-                String part = parts.get(i);
-                chunks.save(new Chunk(knowledgeBaseId, document.getId(), name, i, part,
-                        vectorCodec.encode(embeddingClient.embed(part))));
-            }
-            document.markReady(parts.size());
-        } catch (RuntimeException | IOException exception) {
-            document.markFailed(exception.getMessage());
-            documents.save(document);
-            throw exception;
-        }
-        return documents.save(document);
+        payloads.save(new DocumentPayload(document.getId(), name, file.getContentType(), file.getBytes()));
+        events.publishEvent(new DocumentIndexRequested(document.getId()));
+        return document;
+    }
+
+    @Transactional
+    public Document retryDocument(UUID knowledgeBaseId, UUID documentId) {
+        Document document = documents.findById(documentId)
+                .filter(value -> value.getKnowledgeBaseId().equals(knowledgeBaseId))
+                .orElseThrow(() -> new EntityNotFoundException("文档不存在"));
+        document.queueForRetry();
+        documents.save(document);
+        events.publishEvent(new DocumentIndexRequested(documentId));
+        return document;
     }
 
     @Transactional
@@ -84,6 +78,9 @@ public class KnowledgeBaseService {
                 .filter(value -> value.getKnowledgeBaseId().equals(knowledgeBaseId))
                 .orElseThrow(() -> new EntityNotFoundException("文档不存在"));
         chunks.deleteByDocumentId(documentId);
+        if (payloads.existsById(documentId)) {
+            payloads.deleteById(documentId);
+        }
         documents.delete(document);
     }
 

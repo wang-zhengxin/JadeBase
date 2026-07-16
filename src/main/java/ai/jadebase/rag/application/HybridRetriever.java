@@ -36,6 +36,12 @@ public class HybridRetriever {
 
     @Transactional(readOnly = true)
     public List<RetrievedChunk> retrieve(UUID knowledgeBaseId, String query) {
+        return retrieve(knowledgeBaseId, query, properties.topK());
+    }
+
+    @Transactional(readOnly = true)
+    public List<RetrievedChunk> retrieve(UUID knowledgeBaseId, String query, int topK) {
+        int resultLimit = Math.min(12, Math.max(1, topK));
         double[] queryVector = embeddingClient.embed(query);
         Set<String> queryTerms = terms(query);
         List<RetrievedChunk> ranked = new ArrayList<>();
@@ -49,7 +55,7 @@ public class HybridRetriever {
         return ranked.stream()
                 .sorted((left, right) -> Double.compare(right.score(), left.score()))
                 .filter(item -> item.score() > 0.01)
-                .limit(properties.topK())
+                .limit(resultLimit)
                 .toList();
     }
 

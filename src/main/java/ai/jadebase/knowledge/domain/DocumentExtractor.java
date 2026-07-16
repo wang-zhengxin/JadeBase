@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Set;
@@ -21,15 +22,19 @@ public class DocumentExtractor {
 
     public String extract(MultipartFile file) throws IOException {
         String filename = file.getOriginalFilename() == null ? "document" : file.getOriginalFilename();
+        return extract(filename, file.getBytes());
+    }
+
+    public String extract(String filename, byte[] bytes) throws IOException {
         String extension = extension(filename);
         String content = switch (extension) {
-            case "pdf" -> extractPdf(file);
-            case "docx" -> extractDocx(file);
+            case "pdf" -> extractPdf(bytes);
+            case "docx" -> extractDocx(bytes);
             default -> {
                 if (!TEXT_EXTENSIONS.contains(extension)) {
                     throw new IllegalArgumentException("暂不支持该文件类型：" + extension + "。支持 PDF、DOCX、Markdown、TXT、CSV");
                 }
-                yield new String(file.getBytes(), StandardCharsets.UTF_8);
+                yield new String(bytes, StandardCharsets.UTF_8);
             }
         };
         String normalized = content.replace("\u0000", "").replaceAll("[ \\t]+", " ").trim();
@@ -37,14 +42,14 @@ public class DocumentExtractor {
         return normalized;
     }
 
-    private String extractPdf(MultipartFile file) throws IOException {
-        try (PDDocument document = Loader.loadPDF(file.getBytes())) {
+    private String extractPdf(byte[] bytes) throws IOException {
+        try (PDDocument document = Loader.loadPDF(bytes)) {
             return new PDFTextStripper().getText(document);
         }
     }
 
-    private String extractDocx(MultipartFile file) throws IOException {
-        try (XWPFDocument document = new XWPFDocument(file.getInputStream())) {
+    private String extractDocx(byte[] bytes) throws IOException {
+        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
             return document.getParagraphs().stream()
                     .map(XWPFParagraph::getText)
                     .collect(Collectors.joining("\n"));

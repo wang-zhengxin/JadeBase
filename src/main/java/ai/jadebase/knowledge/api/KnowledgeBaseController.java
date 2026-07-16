@@ -48,10 +48,16 @@ public class KnowledgeBaseController {
     }
 
     @PostMapping("/{knowledgeBaseId}/documents")
-    @ResponseStatus(HttpStatus.CREATED)
+    @ResponseStatus(HttpStatus.ACCEPTED)
     public Document upload(@PathVariable UUID knowledgeBaseId,
                            @RequestPart("file") MultipartFile file) throws IOException {
         return service.upload(knowledgeBaseId, file);
+    }
+
+    @PostMapping("/{knowledgeBaseId}/documents/{documentId}/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Document retry(@PathVariable UUID knowledgeBaseId, @PathVariable UUID documentId) {
+        return service.retryDocument(knowledgeBaseId, documentId);
     }
 
     @DeleteMapping("/{knowledgeBaseId}/documents/{documentId}")
