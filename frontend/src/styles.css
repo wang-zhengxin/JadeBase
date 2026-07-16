@@ -30,6 +30,78 @@ body {
 button, input, textarea { font: inherit; }
 button, label[for] { -webkit-tap-highlight-color: transparent; }
 
+.app-shell[hidden], .auth-page[hidden] { display: none !important; }
+
+.auth-page {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+    min-height: 620px;
+    margin: 12px;
+    padding: 42px 22px;
+    overflow-y: auto;
+    border: 1px solid #202020;
+    border-radius: 18px;
+    background: #fbfbfb;
+}
+
+.auth-card {
+    width: min(560px, 100%);
+    padding: 42px 44px 36px;
+    border: 1px solid #eeeeef;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .16), 0 2px 8px rgba(0, 0, 0, .08);
+}
+
+.jade-logo.auth-logo { width: 48px; height: 48px; margin-bottom: 25px; }
+.auth-card h1 { margin: 0 0 8px; font-size: 28px; font-weight: 760; }
+.auth-card > p { margin: 0 0 32px; color: #77787c; font-size: 16px; }
+.auth-form { display: grid; }
+.auth-form label { margin: 0 2px 8px; color: #45464a; font-size: 13px; font-weight: 700; }
+.auth-form input {
+    width: 100%;
+    height: 48px;
+    margin-bottom: 17px;
+    padding: 0 13px;
+    border: 1px solid #d8d9dc;
+    border-radius: 7px;
+    outline: none;
+    background: #ffffff;
+    color: #242426;
+    font-size: 14px;
+}
+
+.auth-form input:focus { border-color: #85868a; box-shadow: 0 0 0 3px #eeeeef; }
+.auth-form input::placeholder { color: #999a9e; }
+.auth-confirm-field[hidden] { display: none; }
+.auth-error { margin: -3px 2px 13px; color: var(--danger); font-size: 11px; line-height: 1.5; }
+.auth-error[hidden] { display: none; }
+
+.auth-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 48px;
+    margin-top: 8px;
+    border: 0;
+    border-radius: 7px;
+    background: #242426;
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.auth-submit:hover { background: #000000; }
+.auth-submit:disabled { background: #c9c9cc; cursor: wait; }
+.auth-submit .ui-icon { width: 18px; height: 18px; }
+.auth-switch { margin: 27px 0 0; color: #77787c; text-align: center; font-size: 13px; }
+.auth-switch button { padding: 0; border: 0; border-bottom: 1px solid currentColor; background: transparent; color: #242426; cursor: pointer; }
+
 .app-shell {
     display: grid;
     grid-template-columns: 244px minmax(0, 1fr);
@@ -314,6 +386,13 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
     background: var(--workspace);
 }
 
+.chat-panel.welcome-mode .toolbar-model-pill { visibility: hidden; }
+.chat-panel.welcome-mode { grid-template-rows: 58px auto auto minmax(28px, 1fr); }
+.chat-panel.welcome-mode .messages { min-height: 0; overflow: visible; padding: clamp(72px, 14vh, 145px) 0 14px; }
+.chat-panel.welcome-mode .empty-state { min-height: 0; }
+.chat-panel.welcome-mode .composer { margin-bottom: 0; }
+.chat-panel.welcome-mode .product-note { align-self: end; padding-bottom: 10px; }
+
 .workspace-toolbar {
     display: flex;
     align-items: center;
@@ -352,15 +431,67 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
 
 .empty-state {
     display: grid;
-    place-items: center;
+    width: 100%;
     align-content: end;
-    min-height: 60%;
-    padding-bottom: 28px;
-    text-align: center;
+    min-height: 72%;
+    padding-bottom: 18px;
 }
 
-.empty-state h1 { margin: 0 0 7px; font-size: 25px; font-weight: 750; }
-.empty-state p { margin: 0; color: var(--muted); font-size: 12px; }
+.welcome-heading-row { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 23px; }
+.welcome-heading { display: grid; justify-items: start; }
+.welcome-heading .jade-logo.large { width: 43px; height: 43px; margin-bottom: 15px; }
+.empty-state h1 { margin: 0; font-size: 28px; font-weight: 760; }
+.welcome-actions { display: flex; align-items: center; gap: 13px; padding-bottom: 1px; }
+.welcome-add-button {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #737478;
+    cursor: pointer;
+}
+.welcome-add-button:hover { background: var(--surface-hover); color: var(--text); }
+.welcome-add-button .ui-icon { width: 20px; height: 20px; }
+.welcome-separator { width: 1px; height: 28px; background: var(--border); }
+.welcome-actions .model-pill { min-height: 40px; padding-inline: 16px; border: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
+
+.display-name-prompt {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(270px, 42%);
+    align-items: center;
+    gap: 20px;
+    min-height: 74px;
+    padding: 12px 13px 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.display-name-prompt[hidden] { display: none; }
+.display-name-copy { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.display-name-copy > .ui-icon { flex: 0 0 auto; width: 20px; height: 20px; color: #55565a; }
+.display-name-copy > span { display: grid; gap: 4px; min-width: 0; }
+.display-name-copy strong { font-size: 12px; }
+.display-name-copy small { color: var(--muted); font-size: 10px; }
+.display-name-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.display-name-action input {
+    min-width: 0;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+}
+.display-name-action input:focus { border-color: #929398; box-shadow: 0 0 0 3px #eeeeef; }
+.display-name-action button { min-width: 62px; border: 0; border-radius: 7px; background: #242426; color: #ffffff; cursor: pointer; font-size: 11px; font-weight: 700; }
+.display-name-action button:disabled { background: #c9c9cc; cursor: default; }
 
 .message { margin: 0 0 24px; }
 .message-label { margin-bottom: 7px; color: #77787c; font-size: 10px; font-weight: 650; }
@@ -737,6 +868,10 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
 .memory-delete .ui-icon { width: 14px; height: 14px; }
 .memory-empty { margin: 0; padding: 8px 0 4px; color: var(--faint); text-align: center; font-size: 9px; }
 
+.password-form { overflow: visible; }
+.password-actions { display: flex; justify-content: flex-end; padding: 13px 16px; border-top: 1px solid #ececee; }
+.password-actions .primary-button { min-height: 36px; padding: 0 14px; }
+
 .background-setting { padding: 0 16px 16px; }
 .background-setting > strong { display: block; margin-bottom: 9px; font-size: 11px; }
 .background-swatches { display: flex; gap: 9px; overflow-x: auto; }
@@ -847,6 +982,11 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 680px) {
     body { background: var(--workspace); }
+    .auth-page { width: 100%; height: var(--viewport-height); min-height: 560px; margin: 0; padding: 24px 16px; border: 0; border-radius: 0; }
+    .auth-card { padding: 31px 24px 28px; }
+    .jade-logo.auth-logo { width: 42px; height: 42px; margin-bottom: 21px; }
+    .auth-card h1 { font-size: 24px; }
+    .auth-card > p { margin-bottom: 27px; font-size: 14px; }
     .app-shell { display: block; width: 100%; height: var(--viewport-height); min-height: 560px; margin: 0; overflow-y: auto; border: 0; border-radius: 0; }
     .sidebar { display: block; height: 130px; padding: 6px 10px 9px; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--border); }
     .brand-row { height: 38px; }
@@ -858,6 +998,8 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
     .knowledge-item { width: 175px; min-height: 47px; background: #e9e9ea; }
     .knowledge-item.active { background: var(--surface); box-shadow: inset 0 0 0 1px #d5d5d7; }
     .chat-panel { height: calc(var(--viewport-height) - 130px); min-height: 430px; grid-template-rows: 48px minmax(0, 1fr) auto; padding-bottom: 0; }
+    .chat-panel.welcome-mode { grid-template-rows: 48px auto auto minmax(0, 1fr); }
+    .chat-panel.welcome-mode .messages { padding: 34px 0 12px; }
     .workspace-toolbar { padding: 0 14px; }
     .context-label, .product-note { display: none; }
     .model-pill { min-height: 28px; padding-inline: 10px; }
@@ -866,7 +1008,15 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
     .messages { width: calc(100% - 30px); padding: 16px 0 118px; }
     .empty-state { min-height: 72%; padding-bottom: 12px; }
     .empty-state h1 { font-size: 22px; }
+    .welcome-heading-row { align-items: center; margin-bottom: 15px; }
+    .welcome-heading .jade-logo.large { width: 36px; height: 36px; margin-bottom: 11px; }
+    .welcome-actions { gap: 6px; }
+    .welcome-actions .model-pill { min-height: 34px; padding-inline: 10px; }
+    .welcome-separator { height: 24px; }
+    .display-name-prompt { grid-template-columns: 1fr; gap: 11px; padding: 13px; }
+    .display-name-copy small { font-size: 9px; }
     .composer { position: fixed; right: 14px; bottom: calc(100vh - var(--viewport-height) + 14px); left: 14px; z-index: 4; width: auto; margin: 0; }
+    .chat-panel.welcome-mode .composer { position: relative; right: auto; bottom: auto; left: auto; width: calc(100% - 30px); }
     .settings-page { height: calc(var(--viewport-height) - 130px); padding: 22px 15px 32px; }
     .settings-header { align-items: center; margin-bottom: 16px; padding-bottom: 16px; }
     .settings-header h1 { font-size: 21px; }

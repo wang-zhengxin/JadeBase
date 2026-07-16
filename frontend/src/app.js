@@ -1,7 +1,7 @@
 const isStaticPreview = window.location.protocol === 'file:';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const state = { knowledgeBases: [], activeId: null, documents: [], conversationId: null, conversations: [], memories: [],
-    documentEvents: null, documentEventKnowledgeBaseId: null };
+const state = { currentUser: null, knowledgeBases: [], activeId: null, documents: [], conversationId: null,
+    conversations: [], memories: [], documentEvents: null, documentEventKnowledgeBaseId: null };
 
 function iconMarkup(name, className = 'ui-icon') {
     return `<svg class="${className}" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
@@ -15,6 +15,13 @@ syncViewportHeight();
 window.addEventListener('resize', syncViewportHeight);
 
 const elements = {
+    authPage: document.querySelector('#authPage'),
+    authForm: document.querySelector('#authForm'),
+    authEmail: document.querySelector('#authEmail'),
+    authPassword: document.querySelector('#authPassword'),
+    authConfirmPassword: document.querySelector('#authConfirmPassword'),
+    authError: document.querySelector('#authError'),
+    authSubmit: document.querySelector('#authSubmit'),
     appShell: document.querySelector('#appShell'),
     chatPanel: document.querySelector('.chat-panel'),
     settingsPage: document.querySelector('#settingsPage'),
@@ -57,6 +64,7 @@ const defaultSettings = {
 };
 
 let appSettings = { ...defaultSettings };
+let authMode = 'login';
 
 function saveSettings(applyImmediately = true) {
     if (applyImmediately) applySettings();
@@ -91,7 +99,7 @@ async function loadServerSettings() {
 function applySettings() {
     document.documentElement.dataset.theme = appSettings.colorMode;
     elements.chatPanel.dataset.chatBackground = appSettings.chatBackground;
-    document.querySelector('#profileNameInput').value = appSettings.profileName;
+    document.querySelector('#profileNameInput').value = state.currentUser?.displayName || appSettings.profileName;
     document.querySelector('#workRoleInput').value = appSettings.workRole;
     document.querySelector('#colorModeSelect').value = appSettings.colorMode;
     document.querySelector('#languageSelect').value = appSettings.language;
@@ -108,6 +116,64 @@ function applySettings() {
     document.querySelectorAll('[data-background]').forEach(button => {
         button.classList.toggle('active', button.dataset.background === appSettings.chatBackground);
     });
+}
+
+function setModelStatus(value) {
+    document.querySelectorAll('[data-model-status]').forEach(element => { element.textContent = value; });
+    document.querySelector('#settingsModelName').textContent = value;
+}
+
+function userLabel() {
+    if (state.currentUser?.displayName) return state.currentUser.displayName;
+    return state.currentUser?.email?.split('@')[0] || '用户';
+}
+
+function renderCurrentUser() {
+    if (!state.currentUser) return;
+    document.querySelector('#accountDisplayName').textContent = userLabel();
+    document.querySelector('#accountEmail').textContent = state.currentUser.email;
+    document.querySelector('#settingsAccountEmail').textContent = state.currentUser.email;
+    document.querySelector('#settingsAccountRole').textContent = state.currentUser.role === 'owner' ? '所有者' : '成员';
+    document.querySelector('#profileNameInput').value = state.currentUser.displayName || appSettings.profileName;
+    document.querySelectorAll('[data-display-name-prompt]').forEach(prompt => {
+        prompt.hidden = Boolean(state.currentUser.displayName);
+        const input = prompt.querySelector('[data-welcome-name]');
+        if (input && !state.currentUser.displayName) input.value = '';
+    });
+}
+
+function setAuthMode(mode) {
+    authMode = mode;
+    const registering = mode === 'register';
+    document.querySelector('#authTitle').textContent = registering ? '创建 JadeBase 账号' : '欢迎使用 JadeBase';
+    document.querySelector('#authSubtitle').textContent = registering ? '加入你的企业 AI 工作空间' : '你的开源企业 AI 工作空间';
+    document.querySelector('#authSubmitLabel').textContent = registering ? '创建账号' : '登录';
+    document.querySelector('#authSwitchHint').textContent = registering ? '已经有账号？' : '还没有账号？';
+    document.querySelector('#authSwitchButton').textContent = registering ? '返回登录' : '创建账号';
+    document.querySelectorAll('.auth-confirm-field').forEach(element => { element.hidden = !registering; });
+    elements.authConfirmPassword.required = registering;
+    elements.authPassword.autocomplete = registering ? 'new-password' : 'current-password';
+    elements.authError.hidden = true;
+}
+
+function showAuthPage(message = '') {
+    state.documentEvents?.close();
+    state.documentEvents = null;
+    state.currentUser = null;
+    elements.appShell.hidden = true;
+    elements.authPage.hidden = false;
+    elements.authError.textContent = message;
+    elements.authError.hidden = !message;
+    elements.authPassword.value = '';
+    elements.authConfirmPassword.value = '';
+    window.setTimeout(() => elements.authEmail.focus());
+}
+
+function showWorkspace() {
+    elements.authPage.hidden = true;
+    elements.appShell.hidden = false;
+    elements.chatPanel.classList.add('welcome-mode');
+    renderCurrentUser();
 }
 
 function openSettings() {
@@ -140,9 +206,28 @@ function closeAccountMenu() {
 function emptyStateMarkup() {
     return `
         <div class="empty-state" id="emptyState">
-            <span class="jade-logo large" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-            <h1>有什么可以帮你？</h1>
-            <p>从当前知识库中检索可靠答案</p>
+            <div class="welcome-heading-row">
+                <div class="welcome-heading">
+                    <span class="jade-logo large" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                    <h1>有什么可以帮你？</h1>
+                </div>
+                <div class="welcome-actions">
+                    <button class="welcome-add-button" type="button" data-welcome-add aria-label="创建知识库">${iconMarkup('add')}</button>
+                    <span class="welcome-separator" aria-hidden="true"></span>
+                    <span class="model-pill"><span class="model-mark" aria-hidden="true">◆</span><span data-model-status>${escapeHtml(elements.modelStatus.textContent)}</span></span>
+                </div>
+            </div>
+            <form class="display-name-prompt" data-display-name-prompt ${state.currentUser?.displayName ? 'hidden' : ''}>
+                <div class="display-name-copy">
+                    ${iconMarkup('user')}
+                    <span><strong>JadeBase 应该如何称呼你？</strong><small>这个名称会显示在应用中。</small></span>
+                </div>
+                <div class="display-name-action">
+                    <label class="sr-only">你的名称</label>
+                    <input data-welcome-name maxlength="40" autocomplete="name" placeholder="你的名称">
+                    <button type="submit" disabled>保存</button>
+                </div>
+            </form>
         </div>`;
 }
 
@@ -150,16 +235,23 @@ function resetConversation() {
     state.conversationId = null;
     elements.messages.innerHTML = emptyStateMarkup();
     elements.emptyState = elements.messages.querySelector('#emptyState');
+    elements.chatPanel.classList.add('welcome-mode');
+    renderCurrentUser();
     elements.questionInput.value = '';
     elements.questionInput.focus();
 }
 
 async function api(path, options = {}) {
-    const response = await fetch(`${apiBaseUrl}${path}`, options);
+    const { skipAuthRedirect = false, ...requestOptions } = options;
+    const response = await fetch(`${apiBaseUrl}${path}`, { credentials: 'same-origin', ...requestOptions });
     if (!response.ok) {
         let message = `请求失败 (${response.status})`;
         try { message = (await response.json()).message || message; } catch (_) { /* no-op */ }
-        throw new Error(message);
+        const error = new Error(message);
+        error.status = response.status;
+        if (response.status === 401 && !skipAuthRedirect
+                && !path.endsWith('/login') && !path.endsWith('/register')) showAuthPage('登录已过期，请重新登录');
+        throw error;
     }
     return response.status === 204 ? null : response.json();
 }
@@ -358,6 +450,7 @@ function formatBytes(bytes) {
 
 function appendMessage(role, text, sources = []) {
     elements.emptyState?.remove();
+    elements.chatPanel.classList.remove('welcome-mode');
     const article = document.createElement('article');
     article.className = `message ${role}`;
     if (role === 'assistant' && appSettings.smoothStreaming) article.classList.add('smooth-enter');
@@ -410,8 +503,7 @@ elements.chatForm.addEventListener('submit', async event => {
         });
         state.conversationId = result.conversationId;
         appendMessage('assistant', result.answer, result.sources);
-        elements.modelStatus.textContent = result.mode === 'model' ? '模型已连接' : '本地演示';
-        document.querySelector('#settingsModelName').textContent = elements.modelStatus.textContent;
+        setModelStatus(result.mode === 'model' ? '模型已连接' : '本地演示');
         if (appSettings.updateMemories && /^记住[：:]/.test(question)) await loadMemories();
     } catch (error) {
         showToast(error.message);
@@ -527,9 +619,16 @@ document.querySelector('#helpButton').addEventListener('click', () => {
     closeAccountMenu();
     showToast('帮助中心内容正在整理中');
 });
-document.querySelector('#logoutButton').addEventListener('click', () => {
+document.querySelector('#logoutButton').addEventListener('click', async () => {
     closeAccountMenu();
-    showToast('本地演示模式未启用账户登录');
+    try {
+        await api('/api/v1/auth/logout', { method: 'POST' });
+    } catch (error) {
+        if (error.status !== 401) showToast(error.message);
+    } finally {
+        setAuthMode('login');
+        showAuthPage();
+    }
 });
 document.querySelector('#closeSettingsButton').addEventListener('click', closeSettings);
 
@@ -557,6 +656,17 @@ document.querySelectorAll('[data-settings-target]').forEach(button => {
 document.querySelector('#profileNameInput').addEventListener('input', event => {
     appSettings.profileName = event.target.value;
     saveSettings();
+    window.clearTimeout(renderCurrentUser.profileTimer);
+    renderCurrentUser.profileTimer = window.setTimeout(async () => {
+        try {
+            state.currentUser = await api('/api/v1/auth/me', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ displayName: appSettings.profileName })
+            });
+            renderCurrentUser();
+        } catch (error) { showToast(`名称保存失败：${error.message}`); }
+    }, 450);
 });
 document.querySelector('#workRoleInput').addEventListener('input', event => {
     appSettings.workRole = event.target.value;
@@ -645,6 +755,42 @@ document.querySelector('#memoryList').addEventListener('click', async event => {
         showToast('记忆已删除');
     } catch (error) { showToast(error.message); }
 });
+
+elements.messages.addEventListener('input', event => {
+    if (!event.target.matches('[data-welcome-name]')) return;
+    const submit = event.target.closest('form').querySelector('button[type="submit"]');
+    submit.disabled = !event.target.value.trim();
+});
+
+elements.messages.addEventListener('submit', async event => {
+    const form = event.target.closest('[data-display-name-prompt]');
+    if (!form) return;
+    event.preventDefault();
+    const input = form.querySelector('[data-welcome-name]');
+    const button = form.querySelector('button[type="submit"]');
+    const displayName = input.value.trim();
+    if (!displayName) return;
+    button.disabled = true;
+    try {
+        state.currentUser = await api('/api/v1/auth/me', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ displayName })
+        });
+        appSettings.profileName = displayName;
+        saveSettings();
+        renderCurrentUser();
+        elements.questionInput.focus();
+        showToast('显示名称已保存');
+    } catch (error) {
+        showToast(error.message);
+        button.disabled = false;
+    }
+});
+
+elements.messages.addEventListener('click', event => {
+    if (event.target.closest('[data-welcome-add]')) document.querySelector('#openCreateButton').click();
+});
 document.querySelectorAll('[data-background]').forEach(button => {
     button.addEventListener('click', () => {
         appSettings.chatBackground = button.dataset.background;
@@ -666,6 +812,29 @@ document.querySelectorAll('.connector-button').forEach(button => {
     button.addEventListener('click', () => showToast(`${button.dataset.connector}将在连接器阶段开放`));
 });
 
+document.querySelector('#changePasswordForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const currentPassword = document.querySelector('#currentPasswordInput').value;
+    const newPassword = document.querySelector('#newPasswordInput').value;
+    const confirmation = document.querySelector('#confirmNewPasswordInput').value;
+    if (newPassword !== confirmation) {
+        showToast('两次输入的新密码不一致');
+        return;
+    }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+        await api('/api/v1/auth/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ currentPassword, newPassword })
+        });
+        event.currentTarget.reset();
+        showToast('密码已更新');
+    } catch (error) { showToast(error.message); }
+    finally { button.disabled = false; }
+});
+
 elements.createForm.addEventListener('submit', async event => {
     event.preventDefault();
     try {
@@ -684,17 +853,67 @@ elements.createForm.addEventListener('submit', async event => {
 
 applySettings();
 if (isStaticPreview) {
+    state.currentUser = { email: 'preview@jadebase.local', displayName: '', role: 'owner' };
+    showWorkspace();
     state.knowledgeBases = [
         { id: 'preview-product', name: '产品知识库', description: '产品资料与使用说明' },
         { id: 'preview-engineering', name: '研发知识库', description: '团队研发规范与架构文档' }
     ];
     state.activeId = state.knowledgeBases[0].id;
-    elements.modelStatus.textContent = '静态预览';
+    setModelStatus('静态预览');
     renderKnowledgeBases();
     renderDocuments();
     renderMemories();
     loadNotifications();
 } else {
-    Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories()])
-            .catch(error => showToast(error.message));
+    bootstrap();
 }
+
+async function bootstrap() {
+    try {
+        state.currentUser = await api('/api/v1/auth/me', { skipAuthRedirect: true });
+        showWorkspace();
+        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories()]);
+        renderCurrentUser();
+    } catch (error) {
+        if (error.status === 401) showAuthPage();
+        else showAuthPage(`无法连接 JadeBase：${error.message}`);
+    }
+}
+
+document.querySelector('#authSwitchButton').addEventListener('click', () => {
+    setAuthMode(authMode === 'login' ? 'register' : 'login');
+    elements.authPassword.value = '';
+    elements.authConfirmPassword.value = '';
+    elements.authEmail.focus();
+});
+
+elements.authForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const registering = authMode === 'register';
+    if (registering && elements.authPassword.value !== elements.authConfirmPassword.value) {
+        elements.authError.textContent = '两次输入的密码不一致';
+        elements.authError.hidden = false;
+        return;
+    }
+    elements.authSubmit.disabled = true;
+    elements.authError.hidden = true;
+    try {
+        state.currentUser = await api(`/api/v1/auth/${registering ? 'register' : 'login'}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: elements.authEmail.value, password: elements.authPassword.value }),
+            skipAuthRedirect: true
+        });
+        elements.authForm.reset();
+        showWorkspace();
+        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories()]);
+        resetConversation();
+        renderCurrentUser();
+    } catch (error) {
+        elements.authError.textContent = error.message;
+        elements.authError.hidden = false;
+    } finally {
+        elements.authSubmit.disabled = false;
+    }
+});

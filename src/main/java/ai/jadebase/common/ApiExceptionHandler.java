@@ -1,5 +1,7 @@
 package ai.jadebase.common;
 
+import ai.jadebase.identity.domain.AuthenticationException;
+import ai.jadebase.identity.domain.IdentityConflictException;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +23,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler({IllegalArgumentException.class, MethodArgumentNotValidException.class})
     ResponseEntity<Map<String, Object>> badRequest(Exception exception) {
         return error(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    ResponseEntity<Map<String, Object>> unauthorized(AuthenticationException exception) {
+        return error(HttpStatus.UNAUTHORIZED, exception.getMessage());
+    }
+
+    @ExceptionHandler(IdentityConflictException.class)
+    ResponseEntity<Map<String, Object>> conflict(IdentityConflictException exception) {
+        return error(HttpStatus.CONFLICT, exception.getMessage());
     }
 
     private ResponseEntity<Map<String, Object>> error(HttpStatus status, String message) {

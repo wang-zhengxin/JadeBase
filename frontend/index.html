@@ -26,7 +26,29 @@
     <symbol id="icon-sync" viewBox="0 0 24 24"><path d="M4 8a8 8 0 0 1 13-2l2 2M20 16a8 8 0 0 1-13 2l-2-2M19 4v4h-4M5 20v-4h4"/></symbol>
     <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
 </svg>
-<div class="app-shell" id="appShell">
+<main class="auth-page" id="authPage">
+    <section class="auth-card" aria-labelledby="authTitle">
+        <span class="jade-logo auth-logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <h1 id="authTitle">欢迎使用 JadeBase</h1>
+        <p id="authSubtitle">你的开源企业 AI 工作空间</p>
+        <form class="auth-form" id="authForm">
+            <label for="authEmail">邮箱地址</label>
+            <input id="authEmail" name="email" type="email" maxlength="320" autocomplete="email" placeholder="name@company.com" required>
+            <label for="authPassword">密码</label>
+            <input id="authPassword" name="password" type="password" minlength="8" maxlength="72" autocomplete="current-password" placeholder="至少 8 个字符" required>
+            <label class="auth-confirm-field" id="authConfirmField" for="authConfirmPassword" hidden>确认密码</label>
+            <input class="auth-confirm-field" id="authConfirmPassword" name="confirmPassword" type="password" minlength="8" maxlength="72" autocomplete="new-password" placeholder="再次输入密码" hidden>
+            <p class="auth-error" id="authError" role="alert" hidden></p>
+            <button class="auth-submit" id="authSubmit" type="submit">
+                <span id="authSubmitLabel">登录</span>
+                <svg class="ui-icon" aria-hidden="true"><use href="#icon-send"/></svg>
+            </button>
+        </form>
+    </section>
+    <p class="auth-switch"><span id="authSwitchHint">还没有账号？</span> <button id="authSwitchButton" type="button">创建账号</button></p>
+</main>
+
+<div class="app-shell" id="appShell" hidden>
     <aside class="sidebar">
         <div class="brand-row">
             <a class="brand" href="./" aria-label="JadeBase 首页">
@@ -62,13 +84,13 @@
             <button class="footer-item footer-button" id="adminPanelButton" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-settings"/></svg> 管理后台</button>
             <button class="footer-item account-row" id="accountMenuButton" type="button" aria-haspopup="menu" aria-expanded="false">
                 <span class="avatar" aria-hidden="true"><svg class="ui-icon"><use href="#icon-user"/></svg></span>
-                <span>wang-zhengxin</span>
+                <span id="accountDisplayName">用户</span>
                 <span class="notification" id="desktopNotificationBadge" hidden></span>
             </button>
         </footer>
 
         <div class="account-popover" id="accountPopover" role="menu" hidden>
-            <div class="account-popover-title">wang-zhengxin@github</div>
+            <div class="account-popover-title" id="accountEmail">正在加载</div>
             <div class="account-popover-divider"></div>
             <button class="account-menu-item" id="openSettingsButton" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-settings"/></svg> 设置</button>
             <button class="account-menu-item" id="notificationsButton" type="button" role="menuitem"><span class="fallback-icon" aria-hidden="true">♢</span> 通知 <span class="menu-badge" id="menuNotificationBadge" hidden></span></button>
@@ -85,18 +107,37 @@
                 <span class="context-label">当前知识库</span>
                 <strong id="activeKnowledgeName">正在加载</strong>
             </div>
-            <div class="model-pill">
+            <div class="model-pill toolbar-model-pill">
                 <span class="model-mark" aria-hidden="true">◆</span>
-                <span id="modelStatus">本地演示</span>
+                <span id="modelStatus" data-model-status>本地演示</span>
             </div>
             <button class="icon-button mobile-settings-button avatar" id="mobileAccountButton" type="button" aria-label="打开用户菜单" aria-haspopup="menu" aria-expanded="false"><svg class="ui-icon"><use href="#icon-account"/></svg></button>
         </header>
 
         <section id="messages" class="messages" aria-live="polite">
             <div class="empty-state" id="emptyState">
-                <span class="jade-logo large" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-                <h1>有什么可以帮你？</h1>
-                <p>从当前知识库中检索可靠答案</p>
+                <div class="welcome-heading-row">
+                    <div class="welcome-heading">
+                        <span class="jade-logo large" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                        <h1>有什么可以帮你？</h1>
+                    </div>
+                    <div class="welcome-actions">
+                        <button class="welcome-add-button" type="button" data-welcome-add aria-label="创建知识库"><svg class="ui-icon"><use href="#icon-add"/></svg></button>
+                        <span class="welcome-separator" aria-hidden="true"></span>
+                        <span class="model-pill"><span class="model-mark" aria-hidden="true">◆</span><span data-model-status>本地演示</span></span>
+                    </div>
+                </div>
+                <form class="display-name-prompt" data-display-name-prompt hidden>
+                    <div class="display-name-copy">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#icon-user"/></svg>
+                        <span><strong>JadeBase 应该如何称呼你？</strong><small>这个名称会显示在应用中。</small></span>
+                    </div>
+                    <div class="display-name-action">
+                        <label class="sr-only" for="welcomeNameInput">你的名称</label>
+                        <input id="welcomeNameInput" data-welcome-name maxlength="40" autocomplete="name" placeholder="你的名称">
+                        <button type="submit" disabled>保存</button>
+                    </div>
+                </form>
             </div>
         </section>
 
@@ -238,9 +279,25 @@
                 <section class="settings-section" data-settings-section="account">
                     <h2>账户</h2>
                     <div class="settings-card">
-                        <div class="setting-row"><span><strong>GitHub 账户</strong><small>wang-zhengxin</small></span><span class="status-badge">所有者</span></div>
-                        <div class="setting-row"><span><strong>工作区</strong><small>JadeBase 本地工作区</small></span><span class="status-badge neutral">单租户</span></div>
+                        <div class="setting-row"><span><strong>登录邮箱</strong><small id="settingsAccountEmail">正在加载</small></span><span class="status-badge" id="settingsAccountRole">成员</span></div>
+                        <div class="setting-row"><span><strong>工作区</strong><small>JadeBase 共享工作区</small></span><span class="status-badge neutral">单租户</span></div>
                     </div>
+                    <h2>修改密码</h2>
+                    <form class="settings-card password-form" id="changePasswordForm">
+                        <label class="setting-row" for="currentPasswordInput">
+                            <span><strong>当前密码</strong><small>验证当前登录身份</small></span>
+                            <input id="currentPasswordInput" type="password" autocomplete="current-password" required>
+                        </label>
+                        <label class="setting-row" for="newPasswordInput">
+                            <span><strong>新密码</strong><small>使用 8 到 72 个字符</small></span>
+                            <input id="newPasswordInput" type="password" minlength="8" maxlength="72" autocomplete="new-password" required>
+                        </label>
+                        <label class="setting-row" for="confirmNewPasswordInput">
+                            <span><strong>确认新密码</strong><small>再次输入新密码</small></span>
+                            <input id="confirmNewPasswordInput" type="password" minlength="8" maxlength="72" autocomplete="new-password" required>
+                        </label>
+                        <div class="password-actions"><button class="primary-button" type="submit">更新密码</button></div>
+                    </form>
                 </section>
 
                 <section class="settings-section" data-settings-section="connectors">
