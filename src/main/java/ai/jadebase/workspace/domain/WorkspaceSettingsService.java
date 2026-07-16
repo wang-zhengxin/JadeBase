@@ -21,14 +21,12 @@ public class WorkspaceSettingsService {
     }
 
     @Transactional
-    public WorkspaceSettings update(String profileName, String workRole,
-                                    WorkspaceSettings.ColorMode colorMode,
-                                    WorkspaceSettings.ChatBackground chatBackground,
-                                    WorkspaceSettings.Language language, int topK,
-                                    boolean showCitations) {
-        if (topK < 1 || topK > 12) throw new IllegalArgumentException("召回片段数必须在 1 到 12 之间");
+    public WorkspaceSettings update(WorkspaceSettings.Preferences preferences) {
+        if (preferences.topK() < 1 || preferences.topK() > 12) {
+            throw new IllegalArgumentException("召回片段数必须在 1 到 12 之间");
+        }
         WorkspaceSettings settings = get();
-        settings.update(profileName, workRole, colorMode, chatBackground, language, topK, showCitations);
+        settings.update(preferences);
         return repository.save(settings);
     }
 }
