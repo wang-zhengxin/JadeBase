@@ -1,4 +1,5 @@
 const isStaticPreview = window.location.protocol === 'file:';
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const state = { knowledgeBases: [], activeId: null, documents: [], conversationId: null, conversations: [],
     documentEvents: null, documentEventKnowledgeBaseId: null };
 
@@ -140,7 +141,7 @@ function resetConversation() {
 }
 
 async function api(path, options = {}) {
-    const response = await fetch(path, options);
+    const response = await fetch(`${apiBaseUrl}${path}`, options);
     if (!response.ok) {
         let message = `请求失败 (${response.status})`;
         try { message = (await response.json()).message || message; } catch (_) { /* no-op */ }
@@ -263,7 +264,7 @@ function connectDocumentEvents() {
     if (state.documentEvents && state.documentEventKnowledgeBaseId === state.activeId) return;
     state.documentEvents?.close();
     state.documentEventKnowledgeBaseId = state.activeId;
-    const events = new EventSource(`/api/v1/knowledge-bases/${state.activeId}/documents/events`);
+    const events = new EventSource(`${apiBaseUrl}/api/v1/knowledge-bases/${state.activeId}/documents/events`);
     state.documentEvents = events;
     events.addEventListener('snapshot', event => {
         state.documents = JSON.parse(event.data);
