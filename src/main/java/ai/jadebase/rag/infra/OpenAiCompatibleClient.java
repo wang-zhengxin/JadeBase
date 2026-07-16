@@ -21,7 +21,8 @@ public class OpenAiCompatibleClient implements ChatModelClient {
     }
 
     @Override
-    public String answer(String question, List<RetrievedChunk> context, String language) {
+    public String answer(String question, List<RetrievedChunk> context, String language,
+                         Preferences preferences) {
         boolean english = "en".equalsIgnoreCase(language);
         if (!configured()) return fallbackAnswer(context, english);
 
@@ -36,7 +37,7 @@ public class OpenAiCompatibleClient implements ChatModelClient {
                 "model", properties.chatModel(),
                 "temperature", 0.2,
                 "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt(english)),
+                        Map.of("role", "system", "content", systemPrompt(english, preferences)),
                         Map.of("role", "user", "content", "问题：" + question + "\n\n可用资料：\n" + sources)));
 
         ChatResponse response = restClient.post()
@@ -71,10 +72,22 @@ public class OpenAiCompatibleClient implements ChatModelClient {
         return answer.toString().trim();
     }
 
-    private String systemPrompt(boolean english) {
-        return english
+    private String systemPrompt(boolean english, Preferences preferences) {
+        String base = english
                 ? "You are an enterprise knowledge assistant. Answer only from the supplied sources, say when evidence is insufficient, and cite facts using [资料N]. Respond in English."
                 : "你是企业知识助手。只依据提供的资料回答；资料不足时明确说明。引用事实时使用[资料N]标记。使用简体中文回答。";
+        StringBuilder prompt = new StringBuilder(base);
+        if (!preferences.personalInstructions().isBlank()) {
+            prompt.append(english ? "\n\nUser preferences:\n" : "\n\n用户偏好：\n")
+                    .append(preferences.personalInstructions());
+        }
+        if (!preferences.memories().isEmpty()) {
+            prompt.append(english ? "\n\nStored memories:\n" : "\n\n已保存记忆：\n");
+            for (int i = 0; i < preferences.memories().size(); i++) {
+                prompt.append(i + 1).append(". ").append(preferences.memories().get(i)).append('\n');
+            }
+        }
+        return prompt.toString();
     }
 
     private String normalize(String url) {

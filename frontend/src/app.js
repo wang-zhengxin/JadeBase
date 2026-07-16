@@ -1,6 +1,6 @@
 const isStaticPreview = window.location.protocol === 'file:';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const state = { knowledgeBases: [], activeId: null, documents: [], conversationId: null, conversations: [],
+const state = { knowledgeBases: [], activeId: null, documents: [], conversationId: null, conversations: [], memories: [],
     documentEvents: null, documentEventKnowledgeBaseId: null };
 
 function iconMarkup(name, className = 'ui-icon') {
@@ -47,13 +47,19 @@ const defaultSettings = {
     chatBackground: 'none',
     language: 'zh-CN',
     topK: 6,
-    showCitations: true
+    showCitations: true,
+    autoScroll: true,
+    smoothStreaming: true,
+    collapseLargePastes: true,
+    personalInstructions: '',
+    referenceMemories: true,
+    updateMemories: false
 };
 
 let appSettings = { ...defaultSettings };
 
-function saveSettings() {
-    applySettings();
+function saveSettings(applyImmediately = true) {
+    if (applyImmediately) applySettings();
     if (isStaticPreview) return;
     window.clearTimeout(saveSettings.timer);
     saveSettings.timer = window.setTimeout(async () => {
@@ -91,6 +97,14 @@ function applySettings() {
     document.querySelector('#languageSelect').value = appSettings.language;
     document.querySelector('#topKInput').value = appSettings.topK;
     document.querySelector('#citationsToggle').checked = appSettings.showCitations;
+    document.querySelector('#autoScrollToggle').checked = appSettings.autoScroll;
+    document.querySelector('#smoothStreamingToggle').checked = appSettings.smoothStreaming;
+    document.querySelector('#collapseLargePastesToggle').checked = appSettings.collapseLargePastes;
+    document.querySelector('#personalInstructionsInput').value = appSettings.personalInstructions;
+    document.querySelector('#personalInstructionsCount').textContent = appSettings.personalInstructions.length;
+    document.querySelector('#referenceMemoriesToggle').checked = appSettings.referenceMemories;
+    document.querySelector('#updateMemoriesToggle').checked = appSettings.updateMemories;
+    document.querySelector('#settingsModelName').textContent = elements.modelStatus.textContent;
     document.querySelectorAll('[data-background]').forEach(button => {
         button.classList.toggle('active', button.dataset.background === appSettings.chatBackground);
     });
@@ -148,6 +162,26 @@ async function api(path, options = {}) {
         throw new Error(message);
     }
     return response.status === 204 ? null : response.json();
+}
+
+async function loadMemories() {
+    state.memories = isStaticPreview ? [] : await api('/api/v1/memories');
+    renderMemories();
+}
+
+function renderMemories() {
+    const list = document.querySelector('#memoryList');
+    if (!state.memories.length) {
+        list.innerHTML = '<p class="memory-empty">还没有保存的记忆</p>';
+        return;
+    }
+    list.innerHTML = state.memories.map(memory => `
+        <div class="memory-item">
+            <span>${escapeHtml(memory.content)}</span>
+            <button class="memory-delete" type="button" data-memory-delete="${memory.id}" aria-label="删除记忆">
+                ${iconMarkup('close')}
+            </button>
+        </div>`).join('');
 }
 
 function escapeHtml(value) {
@@ -326,6 +360,7 @@ function appendMessage(role, text, sources = []) {
     elements.emptyState?.remove();
     const article = document.createElement('article');
     article.className = `message ${role}`;
+    if (role === 'assistant' && appSettings.smoothStreaming) article.classList.add('smooth-enter');
     const sourceMarkup = sources.length && appSettings.showCitations ? `
         <div class="sources">
             ${sources.map((source, index) => `
@@ -342,7 +377,7 @@ function appendMessage(role, text, sources = []) {
         <div class="message-body">${escapeHtml(text)}</div>
         ${sourceMarkup}`;
     elements.messages.appendChild(article);
-    elements.messages.scrollTop = elements.messages.scrollHeight;
+    if (appSettings.autoScroll) elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
 elements.knowledgeList.addEventListener('click', async event => {
@@ -376,6 +411,8 @@ elements.chatForm.addEventListener('submit', async event => {
         state.conversationId = result.conversationId;
         appendMessage('assistant', result.answer, result.sources);
         elements.modelStatus.textContent = result.mode === 'model' ? '模型已连接' : '本地演示';
+        document.querySelector('#settingsModelName').textContent = elements.modelStatus.textContent;
+        if (appSettings.updateMemories && /^记住[：:]/.test(question)) await loadMemories();
     } catch (error) {
         showToast(error.message);
         appendMessage('assistant', '回答生成失败，请稍后重试。');
@@ -541,6 +578,73 @@ document.querySelector('#citationsToggle').addEventListener('change', event => {
     appSettings.showCitations = event.target.checked;
     saveSettings();
 });
+document.querySelector('#autoScrollToggle').addEventListener('change', event => {
+    appSettings.autoScroll = event.target.checked;
+    saveSettings();
+});
+document.querySelector('#smoothStreamingToggle').addEventListener('change', event => {
+    appSettings.smoothStreaming = event.target.checked;
+    saveSettings();
+});
+document.querySelector('#collapseLargePastesToggle').addEventListener('change', event => {
+    appSettings.collapseLargePastes = event.target.checked;
+    if (!event.target.checked) elements.questionInput.classList.remove('collapsed-paste');
+    saveSettings();
+});
+document.querySelector('#personalInstructionsInput').addEventListener('input', event => {
+    appSettings.personalInstructions = event.target.value;
+    document.querySelector('#personalInstructionsCount').textContent = event.target.value.length;
+    saveSettings(false);
+});
+document.querySelector('#referenceMemoriesToggle').addEventListener('change', event => {
+    appSettings.referenceMemories = event.target.checked;
+    saveSettings();
+});
+document.querySelector('#updateMemoriesToggle').addEventListener('change', event => {
+    appSettings.updateMemories = event.target.checked;
+    saveSettings();
+});
+
+elements.questionInput.addEventListener('paste', () => {
+    window.setTimeout(() => {
+        const value = elements.questionInput.value;
+        if (appSettings.collapseLargePastes && (value.length > 200 || value.split('\n').length > 3)) {
+            elements.questionInput.classList.add('collapsed-paste');
+            showToast(`已折叠 ${value.length} 字的长文本，点击输入框可展开`);
+        }
+    });
+});
+elements.questionInput.addEventListener('focus', () => elements.questionInput.classList.remove('collapsed-paste'));
+
+const memoryInput = document.querySelector('#memoryInput');
+const memoryAddButton = document.querySelector('#memoryForm button[type="submit"]');
+memoryInput.addEventListener('input', () => {
+    memoryAddButton.disabled = !memoryInput.value.trim();
+});
+document.querySelector('#memoryForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!memoryInput.value.trim()) return;
+    try {
+        await api('/api/v1/memories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: memoryInput.value })
+        });
+        memoryInput.value = '';
+        memoryAddButton.disabled = true;
+        await loadMemories();
+        showToast('记忆已保存');
+    } catch (error) { showToast(error.message); }
+});
+document.querySelector('#memoryList').addEventListener('click', async event => {
+    const button = event.target.closest('[data-memory-delete]');
+    if (!button) return;
+    try {
+        await api(`/api/v1/memories/${button.dataset.memoryDelete}`, { method: 'DELETE' });
+        await loadMemories();
+        showToast('记忆已删除');
+    } catch (error) { showToast(error.message); }
+});
 document.querySelectorAll('[data-background]').forEach(button => {
     button.addEventListener('click', () => {
         appSettings.chatBackground = button.dataset.background;
@@ -588,8 +692,9 @@ if (isStaticPreview) {
     elements.modelStatus.textContent = '静态预览';
     renderKnowledgeBases();
     renderDocuments();
+    renderMemories();
     loadNotifications();
 } else {
-    Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases()])
+    Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories()])
             .catch(error => showToast(error.message));
 }

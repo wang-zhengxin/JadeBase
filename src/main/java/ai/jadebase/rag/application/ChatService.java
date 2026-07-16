@@ -5,6 +5,9 @@ import ai.jadebase.knowledge.infra.KnowledgeBaseRepository;
 import ai.jadebase.rag.domain.ChatModelClient;
 import ai.jadebase.rag.domain.RetrievedChunk;
 import ai.jadebase.rag.domain.QueryRewriter;
+import ai.jadebase.workspace.domain.WorkspaceMemoryService;
+import ai.jadebase.workspace.domain.WorkspaceSettings;
+import ai.jadebase.workspace.domain.WorkspaceSettingsService;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 
@@ -19,15 +22,20 @@ public class ChatService {
     private final ChatModelClient chatModel;
     private final ConversationService conversations;
     private final QueryRewriter queryRewriter;
+    private final WorkspaceSettingsService workspaceSettings;
+    private final WorkspaceMemoryService workspaceMemories;
 
     public ChatService(KnowledgeBaseRepository knowledgeBases, HybridRetriever retriever,
                        ChatModelClient chatModel, ConversationService conversations,
-                       QueryRewriter queryRewriter) {
+                       QueryRewriter queryRewriter, WorkspaceSettingsService workspaceSettings,
+                       WorkspaceMemoryService workspaceMemories) {
         this.knowledgeBases = knowledgeBases;
         this.retriever = retriever;
         this.chatModel = chatModel;
         this.conversations = conversations;
         this.queryRewriter = queryRewriter;
+        this.workspaceSettings = workspaceSettings;
+        this.workspaceMemories = workspaceMemories;
     }
 
     public ChatResult ask(UUID knowledgeBaseId, String question) {
@@ -39,15 +47,23 @@ public class ChatService {
         if (!knowledgeBases.existsById(knowledgeBaseId)) throw new EntityNotFoundException("知识库不存在");
         if (question == null || question.isBlank()) throw new IllegalArgumentException("问题不能为空");
         String normalizedQuestion = question.trim();
-        int resultLimit = topK == null ? 6 : topK;
+        WorkspaceSettings settings = workspaceSettings.get();
+        int resultLimit = topK == null ? settings.getTopK() : topK;
         if (resultLimit < 1 || resultLimit > 12) throw new IllegalArgumentException("召回片段数必须在 1 到 12 之间");
-        String responseLanguage = "en".equalsIgnoreCase(language) ? "en" : "zh-CN";
+        String responseLanguage = language == null
+                ? (settings.getLanguage() == WorkspaceSettings.Language.EN ? "en" : "zh-CN")
+                : ("en".equalsIgnoreCase(language) ? "en" : "zh-CN");
+        workspaceMemories.capture(normalizedQuestion, settings.isUpdateMemories());
+        List<String> memories = settings.isReferenceMemories()
+                ? workspaceMemories.list().stream().map(item -> item.getContent()).toList()
+                : List.of();
         String retrievalQuery = queryRewriter.rewrite(normalizedQuestion,
                 conversationContext(knowledgeBaseId, conversationId));
         HybridRetriever.RetrievalResult retrieval = retriever.retrieveWithDiagnostics(
                 knowledgeBaseId, retrievalQuery, resultLimit);
         List<RetrievedChunk> context = retrieval.chunks();
-        String answer = chatModel.answer(normalizedQuestion, context, responseLanguage);
+        String answer = chatModel.answer(normalizedQuestion, context, responseLanguage,
+                new ChatModelClient.Preferences(settings.getPersonalInstructions(), memories));
         List<Source> sources = context.stream()
                 .map(item -> new Source(item.documentId(), item.documentName(), item.chunkIndex(),
                         snippet(item.content()), Math.round(item.score() * 1000) / 1000.0))

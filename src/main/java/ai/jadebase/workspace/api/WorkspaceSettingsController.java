@@ -32,9 +32,11 @@ public class WorkspaceSettingsController {
 
     @PutMapping
     public SettingsResponse update(@Valid @RequestBody UpdateSettings request) {
-        WorkspaceSettings settings = service.update(request.profileName(), request.workRole(),
-                request.colorMode(), request.chatBackground(), request.language(), request.topK(),
-                request.showCitations());
+        WorkspaceSettings settings = service.update(new WorkspaceSettings.Preferences(
+                request.profileName(), request.workRole(), request.colorMode(), request.chatBackground(),
+                request.language(), request.topK(), request.showCitations(), request.autoScroll(),
+                request.smoothStreaming(), request.collapseLargePastes(), request.personalInstructions(),
+                request.referenceMemories(), request.updateMemories()));
         return SettingsResponse.from(settings);
     }
 
@@ -45,16 +47,27 @@ public class WorkspaceSettingsController {
             @NotNull WorkspaceSettings.ChatBackground chatBackground,
             @NotNull WorkspaceSettings.Language language,
             @Min(1) @Max(12) int topK,
-            boolean showCitations) { }
+            boolean showCitations,
+            boolean autoScroll,
+            boolean smoothStreaming,
+            boolean collapseLargePastes,
+            @Size(max = 500) String personalInstructions,
+            boolean referenceMemories,
+            boolean updateMemories) { }
 
     public record SettingsResponse(String profileName, String workRole, String colorMode,
                                    String chatBackground, String language, int topK,
-                                   boolean showCitations, Instant updatedAt) {
+                                   boolean showCitations, boolean autoScroll, boolean smoothStreaming,
+                                   boolean collapseLargePastes, String personalInstructions,
+                                   boolean referenceMemories, boolean updateMemories, Instant updatedAt) {
         static SettingsResponse from(WorkspaceSettings settings) {
             return new SettingsResponse(settings.getProfileName(), settings.getWorkRole(),
                     value(settings.getColorMode()), value(settings.getChatBackground()),
                     settings.getLanguage() == WorkspaceSettings.Language.ZH_CN ? "zh-CN" : "en",
-                    settings.getTopK(), settings.isShowCitations(), settings.getUpdatedAt());
+                    settings.getTopK(), settings.isShowCitations(), settings.isAutoScroll(),
+                    settings.isSmoothStreaming(), settings.isCollapseLargePastes(),
+                    settings.getPersonalInstructions(), settings.isReferenceMemories(),
+                    settings.isUpdateMemories(), settings.getUpdatedAt());
         }
 
         private static String value(Enum<?> value) {

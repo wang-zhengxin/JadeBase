@@ -12,6 +12,7 @@ import ai.jadebase.rag.application.ChatService;
 import ai.jadebase.notification.domain.NotificationService;
 import ai.jadebase.workspace.domain.WorkspaceSettings;
 import ai.jadebase.workspace.domain.WorkspaceSettingsService;
+import ai.jadebase.workspace.domain.WorkspaceMemoryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -48,6 +49,9 @@ class JadeBaseIntegrationTest {
 
     @Autowired
     WorkspaceSettingsService workspaceSettingsService;
+
+    @Autowired
+    WorkspaceMemoryService workspaceMemoryService;
 
     @Autowired
     NotificationService notificationService;
@@ -111,13 +115,24 @@ class JadeBaseIntegrationTest {
 
     @Test
     void persistsWorkspaceSettingsAndNotificationReadState() {
-        workspaceSettingsService.update("Lewis", "Java 后端工程师", WorkspaceSettings.ColorMode.DARK,
-                WorkspaceSettings.ChatBackground.GRAPHITE, WorkspaceSettings.Language.ZH_CN, 8, false);
+        workspaceSettingsService.update(new WorkspaceSettings.Preferences(
+                "Lewis", "Java 后端工程师", WorkspaceSettings.ColorMode.DARK,
+                WorkspaceSettings.ChatBackground.GRAPHITE, WorkspaceSettings.Language.ZH_CN, 8,
+                false, false, true, true, "回答保持简洁", true, true));
+        workspaceMemoryService.add("用户负责 Java 后端开发");
 
         WorkspaceSettings settings = workspaceSettingsService.get();
         assertThat(settings.getProfileName()).isEqualTo("Lewis");
         assertThat(settings.getTopK()).isEqualTo(8);
         assertThat(settings.isShowCitations()).isFalse();
+        assertThat(settings.getPersonalInstructions()).isEqualTo("回答保持简洁");
+        assertThat(workspaceMemoryService.list()).extracting("content")
+                .contains("用户负责 Java 后端开发");
+
+        KnowledgeBase memoryKnowledgeBase = knowledgeBaseService.create("记忆测试", "对话偏好测试");
+        chatService.ask(memoryKnowledgeBase.getId(), "记住：回答时优先给出 Java 示例");
+        assertThat(workspaceMemoryService.list()).extracting("content")
+                .contains("回答时优先给出 Java 示例");
 
         assertThat(notificationService.unreadCount()).isPositive();
         notificationService.markAllRead();
