@@ -8,7 +8,12 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration/common,classpath:db/migration/{vendor}
   servlet:
     multipart:
       max-file-size: 20MB
@@ -21,6 +26,16 @@ server:
   error:
     include-message: always
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
 jadebase:
   model:
     base-url: ${MODEL_BASE_URL:https://api.deepseek.com}
@@ -29,7 +44,18 @@ jadebase:
     embedding-base-url: ${EMBEDDING_BASE_URL:${MODEL_BASE_URL:https://api.deepseek.com}}
     embedding-api-key: ${EMBEDDING_API_KEY:${MODEL_API_KEY:}}
     embedding-model: ${EMBEDDING_MODEL:text-embedding-v3}
+    embedding-dimensions: ${EMBEDDING_DIMENSIONS:384}
+    reranker-base-url: ${RERANKER_BASE_URL:}
+    reranker-api-key: ${RERANKER_API_KEY:}
+    reranker-model: ${RERANKER_MODEL:bge-reranker-v2-m3}
   retrieval:
     top-k: ${RAG_TOP_K:6}
-    vector-weight: ${RAG_VECTOR_WEIGHT:0.65}
-    keyword-weight: ${RAG_KEYWORD_WEIGHT:0.35}
+    candidate-k: ${RAG_CANDIDATE_K:30}
+    rrf-k: ${RAG_RRF_K:60}
+    search-store: ${RAG_SEARCH_STORE:local}
+    rerank-enabled: ${RAG_RERANK_ENABLED:true}
+    query-rewrite-enabled: ${RAG_QUERY_REWRITE_ENABLED:true}
+  indexing:
+    poll-delay-ms: ${INDEX_POLL_DELAY_MS:500}
+    lease-seconds: ${INDEX_LEASE_SECONDS:60}
+    recovery-delay-ms: ${INDEX_RECOVERY_DELAY_MS:10000}

@@ -80,6 +80,27 @@ public class Document {
         this.completedAt = null;
     }
 
+    public void queueForReindex() {
+        if (status == Status.PROCESSING || status == Status.QUEUED) {
+            throw new IllegalStateException("文档已经在索引队列中");
+        }
+        this.status = Status.QUEUED;
+        this.progress = 0;
+        this.errorMessage = null;
+        this.startedAt = null;
+        this.completedAt = null;
+    }
+
+    public void recoverInterruptedTask() {
+        if (status == Status.PROCESSING) {
+            this.status = Status.QUEUED;
+            this.progress = 0;
+            this.errorMessage = "索引任务中断，已自动恢复";
+            this.startedAt = null;
+            this.completedAt = null;
+        }
+    }
+
     public UUID getId() { return id; }
     public UUID getKnowledgeBaseId() { return knowledgeBaseId; }
     public String getName() { return name; }

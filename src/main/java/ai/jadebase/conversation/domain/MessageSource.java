@@ -5,7 +5,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 import java.util.UUID;
@@ -24,7 +23,6 @@ public class MessageSource {
     private UUID documentId;
     private String documentName;
     private int chunkIndex;
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String snippet;
     private double score;

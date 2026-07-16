@@ -7,7 +7,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
@@ -27,7 +26,6 @@ public class ConversationMessage {
     private UUID conversationId;
     @Enumerated(EnumType.STRING)
     private Role role;
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String content;
     private String mode;

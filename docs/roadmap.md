@@ -12,12 +12,12 @@
 
 ## Phase 2 · Production RAG
 
-- [ ] pgvector HNSW 索引和 BM25 搜索
+- [x] Flyway、pgvector HNSW 索引和中文 BM25 搜索
 - [x] 异步文档流水线、失败重试和进度轮询
-- [ ] 服务端进度事件（SSE）与应用重启任务恢复
-- [ ] BGE / Qwen Reranker
-- [ ] OCR、表格和图片内容理解
-- [ ] RAG 评测集与可观测性
+- [x] 持久化任务租约、服务端进度事件（SSE）与应用重启恢复
+- [x] RRF 融合、会话 Query Rewrite 和 BGE / Qwen Reranker
+- [x] RAG 评测 API、检索诊断和 Prometheus 可观测性
+- [ ] OCR、表格和图片内容理解（暂缓，后续独立阶段实现）
 
 ## Phase 3 · China Connectors
 

@@ -9,7 +9,11 @@ public record ModelProperties(
         String chatModel,
         String embeddingBaseUrl,
         String embeddingApiKey,
-        String embeddingModel
+        String embeddingModel,
+        int embeddingDimensions,
+        String rerankerBaseUrl,
+        String rerankerApiKey,
+        String rerankerModel
 ) {
     public boolean hasChatModel() {
         return apiKey != null && !apiKey.isBlank();
@@ -17,5 +21,10 @@ public record ModelProperties(
 
     public boolean hasEmbeddingModel() {
         return embeddingApiKey != null && !embeddingApiKey.isBlank();
+    }
+
+    public boolean hasReranker() {
+        return rerankerBaseUrl != null && !rerankerBaseUrl.isBlank()
+                && rerankerApiKey != null && !rerankerApiKey.isBlank();
     }
 }

@@ -1,0 +1,10 @@
+{
+  "topK": 6,
+  "cases": [
+    {
+      "question": "高风险变更需要几名审查者？",
+      "expectedDocuments": ["engineering-guidelines.md"],
+      "expectedTerms": ["两名", "审查者"]
+    }
+  ]
+}

@@ -5,6 +5,9 @@ import ai.jadebase.knowledge.domain.Document;
 import ai.jadebase.knowledge.domain.KnowledgeBase;
 import ai.jadebase.knowledge.domain.KnowledgeBaseService;
 import ai.jadebase.knowledge.infra.DocumentRepository;
+import ai.jadebase.knowledge.domain.DocumentIndexTask;
+import ai.jadebase.knowledge.infra.DocumentIndexTaskRepository;
+import ai.jadebase.evaluation.EvaluationService;
 import ai.jadebase.rag.application.ChatService;
 import ai.jadebase.notification.domain.NotificationService;
 import ai.jadebase.workspace.domain.WorkspaceSettings;
@@ -22,7 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:jadebase-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
-        "spring.jpa.hibernate.ddl-auto=create-drop"
+        "spring.jpa.hibernate.ddl-auto=validate",
+        "jadebase.indexing.poll-delay-ms=25",
+        "jadebase.indexing.recovery-delay-ms=100"
 })
 class JadeBaseIntegrationTest {
 
@@ -31,6 +36,9 @@ class JadeBaseIntegrationTest {
 
     @Autowired
     DocumentRepository documentRepository;
+
+    @Autowired
+    DocumentIndexTaskRepository taskRepository;
 
     @Autowired
     ChatService chatService;
@@ -43,6 +51,9 @@ class JadeBaseIntegrationTest {
 
     @Autowired
     NotificationService notificationService;
+
+    @Autowired
+    EvaluationService evaluationService;
 
     @Test
     void indexesDocumentAndReturnsTraceableAnswerWithoutModelKey() throws Exception {
@@ -61,10 +72,25 @@ class JadeBaseIntegrationTest {
         assertThat(result.sources()).isNotEmpty();
         assertThat(result.sources().getFirst().documentName()).isEqualTo("review.md");
         assertThat(result.answer()).contains("两名审查者");
+        assertThat(result.retrieval().vectorCandidates()).isPositive();
+        assertThat(result.retrieval().keywordCandidates()).isPositive();
         ConversationService.ConversationDetail conversation = conversationService.get(result.conversationId());
         assertThat(conversation.messages()).hasSize(2);
         assertThat(conversation.messages().getLast().sources()).isNotEmpty();
         assertThat(conversation.messages().getLast().sources().getFirst().documentName()).isEqualTo("review.md");
+
+        EvaluationService.EvaluationReport report = evaluationService.evaluate(knowledgeBase.getId(), 6,
+                java.util.List.of(new EvaluationService.EvaluationCase("高风险变更如何审批？",
+                        java.util.List.of("review.md"), java.util.List.of("两名", "审查者"))));
+        assertThat(report.recallAtK()).isEqualTo(1);
+        assertThat(report.mrr()).isEqualTo(1);
+        assertThat(report.expectedTermCoverage()).isEqualTo(1);
+
+        knowledgeBaseService.reindexDocument(knowledgeBase.getId(), document.getId());
+        Document reindexed = awaitDocument(document.getId(), Document.Status.READY, 2);
+        assertThat(reindexed.getChunkCount()).isEqualTo(1);
+        assertThat(taskRepository.findTopByDocumentIdOrderByCreatedAtDesc(document.getId()))
+                .get().extracting(DocumentIndexTask::getStatus).isEqualTo(DocumentIndexTask.Status.SUCCEEDED);
     }
 
     @Test
