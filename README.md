@@ -126,11 +126,21 @@ POST   /api/v1/admin/model-providers
 PUT    /api/v1/admin/model-providers/{id}
 PUT    /api/v1/admin/model-providers/default
 DELETE /api/v1/admin/model-providers/{id}
+GET    /api/v1/admin/knowledge/summary
+GET    /api/v1/admin/knowledge/documents
+GET    /api/v1/admin/knowledge/document-sets
+POST   /api/v1/admin/knowledge/document-sets
+PUT    /api/v1/admin/knowledge/document-sets/{id}
+DELETE /api/v1/admin/knowledge/document-sets/{id}
+GET    /api/v1/admin/knowledge/index-settings
+PUT    /api/v1/admin/knowledge/index-settings
+POST   /api/v1/admin/knowledge/reindex
 GET    /actuator/prometheus
 ```
 
 详细设计见 [架构说明](docs/architecture.md)、[语言模型管理指南](docs/language-models.md)、
-[飞书连接器管理指南](docs/feishu-connector.md)、[评测指南](docs/evaluation.md) 和 [阶段路线图](docs/roadmap.md)。
+[文档与知识管理](docs/document-knowledge-admin.md)、[飞书连接器管理指南](docs/feishu-connector.md)、
+[评测指南](docs/evaluation.md) 和 [阶段路线图](docs/roadmap.md)。
 
 ## 技术栈
 
