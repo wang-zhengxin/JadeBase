@@ -3,7 +3,8 @@ const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const state = { currentUser: null, knowledgeBases: [], activeId: null, documents: [], conversationId: null,
     conversations: [], memories: [], documentEvents: null, documentEventKnowledgeBaseId: null,
     feishuConnections: [], feishuSources: [], feishuTasks: [], modelCatalog: [], modelProviders: [],
-    currentModel: null };
+    currentModel: null, adminPage: 'language-models', knowledgeSummary: null, adminDocuments: [],
+    documentSets: [], indexSettings: null };
 
 function iconMarkup(name, className = 'ui-icon') {
     return `<svg class="${className}" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
@@ -59,7 +60,15 @@ const elements = {
     defaultModelSelect: document.querySelector('#defaultModelSelect'),
     modelProviderDialog: document.querySelector('#modelProviderDialog'),
     modelProviderForm: document.querySelector('#modelProviderForm'),
-    modelOptionList: document.querySelector('#modelOptionList')
+    modelOptionList: document.querySelector('#modelOptionList'),
+    adminConnectorList: document.querySelector('#adminConnectorList'),
+    adminSourceList: document.querySelector('#adminSourceList'),
+    adminTaskList: document.querySelector('#adminTaskList'),
+    documentSetList: document.querySelector('#documentSetList'),
+    documentSetDialog: document.querySelector('#documentSetDialog'),
+    documentSetForm: document.querySelector('#documentSetForm'),
+    documentPickerList: document.querySelector('#documentPickerList'),
+    indexSettingsForm: document.querySelector('#indexSettingsForm')
 };
 
 const defaultSettings = {
@@ -201,7 +210,28 @@ async function loadCurrentModel() {
     setModelStatus(state.currentModel.configured ? state.currentModel.modelId : '本地演示');
 }
 
-async function openAdmin(updateLocation = true) {
+const adminPages = new Set(['language-models', 'existing-connectors', 'add-connector', 'document-sets', 'index-settings']);
+
+function adminPageFromHash() {
+    const page = location.hash.startsWith('#admin/') ? location.hash.slice(7) : '';
+    return adminPages.has(page) ? page : 'language-models';
+}
+
+async function showAdminPage(page, updateLocation = true) {
+    const target = adminPages.has(page) ? page : 'language-models';
+    state.adminPage = target;
+    document.querySelectorAll('[data-admin-section]').forEach(section => { section.hidden = section.dataset.adminSection !== target; });
+    document.querySelectorAll('[data-admin-page]').forEach(button => button.classList.toggle('active', button.dataset.adminPage === target));
+    document.querySelector('#adminContent').scrollTop = 0;
+    elements.adminShell.classList.remove('sidebar-open');
+    if (updateLocation && !isStaticPreview) history.replaceState(null, '', `#admin/${target}`);
+    if (target === 'language-models') await loadModelAdmin();
+    if (target === 'existing-connectors' || target === 'add-connector') await loadFeishuConnector();
+    if (target === 'document-sets') await loadDocumentKnowledge();
+    if (target === 'index-settings') await loadIndexAdmin();
+}
+
+async function openAdmin(updateLocation = true, requestedPage = adminPageFromHash()) {
     closeAccountMenu();
     if (state.currentUser?.role !== 'owner') {
         showToast('只有工作区所有者可以进入管理后台');
@@ -210,13 +240,12 @@ async function openAdmin(updateLocation = true) {
     elements.appShell.hidden = true;
     elements.adminShell.hidden = false;
     elements.adminShell.classList.remove('sidebar-open');
-    document.querySelector('#adminContent').scrollTop = 0;
-    if (updateLocation && !isStaticPreview) history.replaceState(null, '', '#admin/language-models');
-    try { await loadModelAdmin(); }
-    catch (error) { showToast(`模型配置加载失败：${error.message}`); }
+    try { await showAdminPage(requestedPage, updateLocation); }
+    catch (error) { showToast(`管理页加载失败：${error.message}`); }
 }
 
 function closeAdmin() {
+    window.clearTimeout(scheduleFeishuRefresh.timer);
     elements.adminShell.hidden = true;
     elements.adminShell.classList.remove('sidebar-open');
     elements.appShell.hidden = false;
@@ -507,6 +536,7 @@ function formatBytes(bytes) {
 async function loadFeishuConnector() {
     if (isStaticPreview) {
         document.querySelector('#feishuConnectionStatus').textContent = '静态预览中不可配置';
+        renderFeishuConnector();
         return;
     }
     const [connections, sources, tasks] = await Promise.all([
@@ -569,6 +599,53 @@ function renderFeishuConnector() {
             </article>`;
         }).join('');
     }
+    renderAdminConnectors();
+}
+
+function sourceMarkup(source) {
+    const task = source.latestTask;
+    const running = task && ['QUEUED', 'RUNNING'].includes(task.status);
+    return `<article class="connector-source-item">
+        <span class="connector-source-icon">${iconMarkup(source.sourceType === 'WIKI' ? 'folder' : 'attachment')}</span>
+        <div class="connector-source-copy">
+            <div><strong>${escapeHtml(source.remoteName)}</strong><span class="connector-type-label">${source.sourceType === 'WIKI' ? 'Wiki' : '文件夹'}</span></div>
+            <small>${escapeHtml(source.knowledgeBaseName)} · ${source.enabled ? `每 ${formatInterval(source.syncIntervalMinutes)}同步` : '已暂停'}</small>
+            <span class="connector-source-status ${source.lastSyncStatus === 'FAILED' ? 'failed' : ''}">${escapeHtml(source.lastSyncMessage || '等待首次同步')}</span>
+        </div>
+        <div class="connector-source-actions">
+            <button class="icon-button ${running ? 'is-spinning' : ''}" data-feishu-sync="${source.id}" type="button" title="立即增量同步" aria-label="立即同步" ${running || !source.enabled ? 'disabled' : ''}>${iconMarkup('sync')}</button>
+            <button class="secondary-button" data-feishu-toggle="${source.id}" data-enabled="${source.enabled}" type="button">${source.enabled ? '暂停' : '启用'}</button>
+            <button class="icon-button connector-delete-action" data-feishu-source-delete="${source.id}" type="button" title="删除来源" aria-label="删除来源">${iconMarkup('close')}</button>
+        </div>
+    </article>`;
+}
+
+function taskMarkup(task) {
+    const source = state.feishuSources.find(item => item.id === task.sourceId);
+    return `<article class="connector-task-item">
+        <span class="task-status-dot ${task.status.toLowerCase()}"></span>
+        <div><strong>${escapeHtml(source?.remoteName || '已删除来源')}</strong><small>${task.mode === 'FULL' ? '全量同步' : '增量同步'} · ${connectorTaskStatus(task.status)}</small></div>
+        <div class="task-counts"><span>扫描 ${task.scannedCount}</span><span>+${task.createdCount} / ~${task.updatedCount} / -${task.deletedCount}</span></div>
+        <time>${formatConnectorDate(task.completedAt || task.startedAt || task.createdAt)}</time>
+        ${task.status === 'FAILED' ? `<button class="secondary-button" data-feishu-task-retry="${task.id}" type="button">重试</button>` : ''}
+    </article>`;
+}
+
+function renderAdminConnectors() {
+    if (!elements.adminConnectorList) return;
+    document.querySelector('#connectorConnectionCount').textContent = state.feishuConnections.length;
+    document.querySelector('#connectorSourceCount').textContent = state.feishuSources.length;
+    document.querySelector('#connectorRunningCount').textContent = state.feishuTasks.filter(task => ['QUEUED', 'RUNNING'].includes(task.status)).length;
+    elements.adminConnectorList.innerHTML = state.feishuConnections.length ? state.feishuConnections.map(connection => `
+        <article class="admin-connector-row">
+            <span class="connector-brand feishu">飞</span>
+            <div><strong>${escapeHtml(connection.name)}</strong><small>${escapeHtml(connection.appId)} · ${connection.sourceCount} 个来源</small><span class="connector-state ${connection.status === 'ERROR' ? 'failed' : ''}">${connection.status === 'CONNECTED' ? '连接正常' : escapeHtml(connection.statusMessage || '待验证')}</span></div>
+            <div class="admin-row-actions"><button class="secondary-button" data-feishu-connection-test="${connection.id}" type="button">测试</button><button class="icon-button" data-feishu-connection-edit="${connection.id}" type="button" title="配置" aria-label="配置">${iconMarkup('settings')}</button><button class="icon-button connector-delete-action" data-feishu-connection-delete="${connection.id}" type="button" title="删除" aria-label="删除">${iconMarkup('close')}</button></div>
+        </article>`).join('') : '<p class="admin-empty-state">尚未配置任何连接器</p>';
+    elements.adminSourceList.innerHTML = state.feishuSources.length
+        ? state.feishuSources.map(sourceMarkup).join('') : '<p class="admin-empty-state">连接企业知识源后，可在这里添加同步目录</p>';
+    elements.adminTaskList.innerHTML = state.feishuTasks.length
+        ? state.feishuTasks.slice(0, 12).map(taskMarkup).join('') : '<p class="admin-empty-state">暂无同步任务</p>';
 }
 
 function connectorTaskStatus(status) {
@@ -588,7 +665,9 @@ function formatConnectorDate(value) {
 function scheduleFeishuRefresh() {
     window.clearTimeout(scheduleFeishuRefresh.timer);
     const active = state.feishuTasks.some(task => ['QUEUED', 'RUNNING'].includes(task.status));
-    if (!active || document.querySelector('[data-settings-section="connectors"]:not(.active)')) return;
+    const settingsVisible = document.querySelector('[data-settings-section="connectors"].active');
+    const adminVisible = !elements.adminShell.hidden && state.adminPage === 'existing-connectors';
+    if (!active || (!settingsVisible && !adminVisible)) return;
     scheduleFeishuRefresh.timer = window.setTimeout(() => {
         loadFeishuConnector().catch(error => showToast(error.message));
     }, 1800);
@@ -609,8 +688,9 @@ function showConnectorResult(id, message, failed = false) {
     result.hidden = false;
 }
 
-function openFeishuConnectionDialog() {
-    const connection = state.feishuConnections[0];
+function openFeishuConnectionDialog(connectionId) {
+    const connection = connectionId === null ? null
+        : connectionId ? state.feishuConnections.find(item => item.id === connectionId) : state.feishuConnections[0];
     elements.feishuConnectionForm.reset();
     elements.feishuConnectionForm.dataset.connectionId = connection?.id || '';
     document.querySelector('#feishuConnectionName').value = connection?.name || '';
@@ -650,6 +730,109 @@ function setFeishuSourceType(type) {
     document.querySelectorAll('[data-feishu-source-type]').forEach(button => button.classList.toggle('active', button.dataset.feishuSourceType === type));
     document.querySelector('#feishuWikiFields').hidden = type !== 'WIKI';
     document.querySelector('#feishuFolderFields').hidden = type !== 'FOLDER';
+}
+
+async function loadDocumentKnowledge() {
+    if (isStaticPreview) {
+        state.knowledgeSummary = { knowledgeBaseCount: 2, documentCount: 3, documentSetCount: 1, readyCount: 3,
+            indexingCount: 0, failedCount: 0, chunkCount: 42, sizeBytes: 186400 };
+        state.adminDocuments = [
+            { id: 'preview-doc-1', knowledgeBaseName: '产品知识库', name: '产品使用手册.md', status: 'READY', sourceType: 'UPLOAD', chunkCount: 18, sizeBytes: 72800 },
+            { id: 'preview-doc-2', knowledgeBaseName: '研发知识库', name: '服务架构设计.md', status: 'READY', sourceType: 'FEISHU', chunkCount: 24, sizeBytes: 113600 }
+        ];
+        state.documentSets = [{ id: 'preview-set', name: '新人必读', description: '产品与研发的核心资料', documentCount: 2, readyCount: 2, chunkCount: 42, documents: state.adminDocuments }];
+        renderDocumentSets();
+        return;
+    }
+    const [summary, documents, sets] = await Promise.all([
+        api('/api/v1/admin/knowledge/summary'), api('/api/v1/admin/knowledge/documents'),
+        api('/api/v1/admin/knowledge/document-sets')
+    ]);
+    state.knowledgeSummary = summary;
+    state.adminDocuments = documents;
+    state.documentSets = sets;
+    renderDocumentSets();
+}
+
+function renderDocumentSets() {
+    const summary = state.knowledgeSummary || {};
+    document.querySelector('#documentSetCount').textContent = summary.documentSetCount || 0;
+    document.querySelector('#inventoryDocumentCount').textContent = summary.documentCount || 0;
+    document.querySelector('#inventoryReadyCount').textContent = summary.readyCount || 0;
+    document.querySelector('#inventoryChunkCount').textContent = summary.chunkCount || 0;
+    elements.documentSetList.innerHTML = state.documentSets.length ? state.documentSets.map(set => `
+        <article class="document-set-row">
+            <span class="document-set-icon">${iconMarkup('files')}</span>
+            <div class="document-set-copy"><div><strong>${escapeHtml(set.name)}</strong><span>${set.readyCount}/${set.documentCount} 已就绪</span></div><p>${escapeHtml(set.description || '暂无描述')}</p><small>${set.chunkCount} 个索引片段 · ${escapeHtml(set.documents.map(item => item.knowledgeBaseName).filter((name, index, values) => values.indexOf(name) === index).join(' / ') || '尚未选择文档')}</small></div>
+            <button class="icon-button" data-document-set-edit="${set.id}" type="button" title="编辑文档集" aria-label="编辑文档集">${iconMarkup('settings')}</button>
+        </article>`).join('') : '<p class="admin-empty-state">还没有文档集。创建后可以跨知识库组织文档。</p>';
+}
+
+let selectedDocumentIds = new Set();
+
+function renderDocumentPicker() {
+    const query = document.querySelector('#documentPickerSearch').value.trim().toLowerCase();
+    const visible = state.adminDocuments.filter(item => `${item.name} ${item.knowledgeBaseName}`.toLowerCase().includes(query));
+    document.querySelector('#documentSetSelectionCount').textContent = `已选择 ${selectedDocumentIds.size} 个文档`;
+    if (!visible.length) {
+        elements.documentPickerList.innerHTML = '<p class="admin-empty-state">没有找到匹配文档</p>';
+        return;
+    }
+    const groups = visible.reduce((result, item) => {
+        if (!result.has(item.knowledgeBaseName)) result.set(item.knowledgeBaseName, []);
+        result.get(item.knowledgeBaseName).push(item);
+        return result;
+    }, new Map());
+    elements.documentPickerList.innerHTML = [...groups.entries()].map(([knowledgeBase, documents]) => `
+        <section class="document-picker-group"><h4>${escapeHtml(knowledgeBase)}<span>${documents.length}</span></h4>${documents.map(item => `
+            <label class="document-picker-item"><input type="checkbox" value="${item.id}" ${selectedDocumentIds.has(item.id) ? 'checked' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>${item.sourceType === 'FEISHU' ? '飞书同步' : '本地上传'} · ${item.chunkCount} 个片段 · ${formatBytes(item.sizeBytes)}</small></span><em class="document-status ${item.status === 'FAILED' ? 'failed' : ''}">${statusText(item.status, item.progress)}</em></label>`).join('')}</section>`).join('');
+}
+
+function openDocumentSetDialog(setId = '') {
+    const set = state.documentSets.find(item => item.id === setId);
+    elements.documentSetForm.reset();
+    document.querySelector('#documentSetId').value = set?.id || '';
+    document.querySelector('#documentSetDialogTitle').textContent = set ? '编辑文档集' : '新建文档集';
+    document.querySelector('#documentSetNameInput').value = set?.name || '';
+    document.querySelector('#documentSetDescriptionInput').value = set?.description || '';
+    document.querySelector('#deleteDocumentSetButton').hidden = !set;
+    selectedDocumentIds = new Set(set?.documents.map(item => item.id) || []);
+    renderDocumentPicker();
+    elements.documentSetDialog.showModal();
+    document.querySelector('#documentSetNameInput').focus();
+}
+
+async function loadIndexAdmin() {
+    if (isStaticPreview) {
+        state.knowledgeSummary ||= { knowledgeBaseCount: 2, documentCount: 3, failedCount: 0, sizeBytes: 186400 };
+        state.indexSettings = { chunkSize: 700, chunkOverlap: 100, topK: 6, candidateK: 40, rrfK: 60,
+            rerankEnabled: true, queryRewriteEnabled: true, reindexRequired: false };
+        renderIndexAdmin();
+        return;
+    }
+    const [summary, settings] = await Promise.all([
+        api('/api/v1/admin/knowledge/summary'), api('/api/v1/admin/knowledge/index-settings')
+    ]);
+    state.knowledgeSummary = summary;
+    state.indexSettings = settings;
+    renderIndexAdmin();
+}
+
+function renderIndexAdmin() {
+    const summary = state.knowledgeSummary || {};
+    const settings = state.indexSettings || {};
+    document.querySelector('#indexKnowledgeBaseCount').textContent = summary.knowledgeBaseCount || 0;
+    document.querySelector('#indexDocumentCount').textContent = summary.documentCount || 0;
+    document.querySelector('#indexFailedCount').textContent = summary.failedCount || 0;
+    document.querySelector('#indexSizeTotal').textContent = formatBytes(summary.sizeBytes || 0);
+    document.querySelector('#chunkSizeInput').value = settings.chunkSize || 700;
+    document.querySelector('#chunkOverlapInput').value = settings.chunkOverlap ?? 100;
+    document.querySelector('#indexTopKInput').value = settings.topK || 6;
+    document.querySelector('#candidateKInput').value = settings.candidateK || 40;
+    document.querySelector('#rrfKInput').value = settings.rrfK || 60;
+    document.querySelector('#rerankEnabledInput').checked = Boolean(settings.rerankEnabled);
+    document.querySelector('#queryRewriteEnabledInput').checked = Boolean(settings.queryRewriteEnabled);
+    document.querySelector('#reindexRequiredBadge').hidden = !settings.reindexRequired;
 }
 
 function appendMessage(role, text, sources = []) {
@@ -979,6 +1162,9 @@ document.querySelector('#closeAdminSidebarButton').addEventListener('click', () 
 document.querySelectorAll('.admin-nav-item.planned').forEach(button => {
     button.addEventListener('click', () => showToast(`${button.dataset.adminLabel}将在后续管理阶段开放`));
 });
+document.querySelectorAll('[data-admin-page]').forEach(button => {
+    button.addEventListener('click', () => showAdminPage(button.dataset.adminPage).catch(error => showToast(error.message)));
+});
 document.querySelector('#adminMenuSearch').addEventListener('input', event => {
     const keyword = event.target.value.trim().toLowerCase();
     document.querySelectorAll('.admin-nav-item').forEach(button => {
@@ -1015,6 +1201,140 @@ elements.defaultModelSelect.addEventListener('change', async event => {
         showToast(`默认模型已切换为 ${state.currentModel.modelId}`);
     } catch (error) { showToast(error.message); }
     finally { event.target.disabled = false; }
+});
+
+document.querySelector('#adminAddConnectorButton').addEventListener('click', () => showAdminPage('add-connector').catch(error => showToast(error.message)));
+document.querySelector('#catalogFeishuButton').addEventListener('click', () => openFeishuConnectionDialog(null));
+document.querySelector('#adminRefreshConnectorsButton').addEventListener('click', () => loadFeishuConnector().catch(error => showToast(error.message)));
+document.querySelector('#adminAddSourceButton').addEventListener('click', () => {
+    if (!state.feishuConnections.length) {
+        showToast('请先配置飞书连接');
+        showAdminPage('add-connector').catch(error => showToast(error.message));
+        return;
+    }
+    openFeishuSourceDialog();
+});
+
+elements.adminConnectorList.addEventListener('click', async event => {
+    const edit = event.target.closest('[data-feishu-connection-edit]');
+    const test = event.target.closest('[data-feishu-connection-test]');
+    const remove = event.target.closest('[data-feishu-connection-delete]');
+    if (edit) return openFeishuConnectionDialog(edit.dataset.feishuConnectionEdit);
+    try {
+        if (test) {
+            test.disabled = true;
+            const result = await api(`/api/v1/connectors/feishu/connections/${test.dataset.feishuConnectionTest}/test`, { method: 'POST' });
+            showToast(result.message);
+        }
+        if (remove) {
+            const connection = state.feishuConnections.find(item => item.id === remove.dataset.feishuConnectionDelete);
+            if (!window.confirm(`确认删除「${connection?.name || '飞书连接'}」及其同步来源吗？`)) return;
+            await api(`/api/v1/connectors/feishu/connections/${remove.dataset.feishuConnectionDelete}`, { method: 'DELETE' });
+            await loadDocuments();
+            showToast('连接器已删除');
+        }
+        await loadFeishuConnector();
+    } catch (error) { showToast(error.message); }
+    finally { if (test) test.disabled = false; }
+});
+
+document.querySelector('#createDocumentSetButton').addEventListener('click', () => openDocumentSetDialog());
+elements.documentSetList.addEventListener('click', event => {
+    const button = event.target.closest('[data-document-set-edit]');
+    if (button) openDocumentSetDialog(button.dataset.documentSetEdit);
+});
+document.querySelector('#closeDocumentSetDialogButton').addEventListener('click', () => elements.documentSetDialog.close());
+document.querySelector('#cancelDocumentSetButton').addEventListener('click', () => elements.documentSetDialog.close());
+document.querySelector('#documentPickerSearch').addEventListener('input', renderDocumentPicker);
+elements.documentPickerList.addEventListener('change', event => {
+    if (!event.target.matches('input[type="checkbox"]')) return;
+    if (event.target.checked) selectedDocumentIds.add(event.target.value);
+    else selectedDocumentIds.delete(event.target.value);
+    renderDocumentPicker();
+});
+document.querySelector('#selectAllDocumentsButton').addEventListener('click', () => {
+    const query = document.querySelector('#documentPickerSearch').value.trim().toLowerCase();
+    const visible = state.adminDocuments.filter(item => `${item.name} ${item.knowledgeBaseName}`.toLowerCase().includes(query));
+    const allSelected = visible.length && visible.every(item => selectedDocumentIds.has(item.id));
+    visible.forEach(item => allSelected ? selectedDocumentIds.delete(item.id) : selectedDocumentIds.add(item.id));
+    renderDocumentPicker();
+});
+elements.documentSetForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const setId = document.querySelector('#documentSetId').value;
+    const button = document.querySelector('#saveDocumentSetButton');
+    button.disabled = true;
+    try {
+        const payload = { name: document.querySelector('#documentSetNameInput').value,
+            description: document.querySelector('#documentSetDescriptionInput').value,
+            documentIds: [...selectedDocumentIds] };
+        if (isStaticPreview) {
+            const members = state.adminDocuments.filter(item => selectedDocumentIds.has(item.id));
+            const preview = { id: setId || `preview-set-${Date.now()}`, ...payload, documents: members,
+                documentCount: members.length, readyCount: members.filter(item => item.status === 'READY').length,
+                chunkCount: members.reduce((total, item) => total + item.chunkCount, 0) };
+            const index = state.documentSets.findIndex(item => item.id === setId);
+            if (index >= 0) state.documentSets[index] = preview;
+            else state.documentSets.unshift(preview);
+            state.knowledgeSummary.documentSetCount = state.documentSets.length;
+        } else {
+            await api(`/api/v1/admin/knowledge/document-sets${setId ? `/${setId}` : ''}`, {
+                method: setId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            });
+        }
+        elements.documentSetDialog.close();
+        if (isStaticPreview) renderDocumentSets();
+        else await loadDocumentKnowledge();
+        showToast(setId ? '文档集已更新' : '文档集已创建');
+    } catch (error) { showToast(error.message); }
+    finally { button.disabled = false; }
+});
+document.querySelector('#deleteDocumentSetButton').addEventListener('click', async () => {
+    const setId = document.querySelector('#documentSetId').value;
+    if (!setId || !window.confirm('确认删除这个文档集吗？原始文档不会被删除。')) return;
+    try {
+        if (isStaticPreview) {
+            state.documentSets = state.documentSets.filter(item => item.id !== setId);
+            state.knowledgeSummary.documentSetCount = state.documentSets.length;
+        } else await api(`/api/v1/admin/knowledge/document-sets/${setId}`, { method: 'DELETE' });
+        elements.documentSetDialog.close();
+        if (isStaticPreview) renderDocumentSets();
+        else await loadDocumentKnowledge();
+        showToast('文档集已删除');
+    } catch (error) { showToast(error.message); }
+});
+
+elements.indexSettingsForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const payload = { chunkSize: Number(document.querySelector('#chunkSizeInput').value),
+        chunkOverlap: Number(document.querySelector('#chunkOverlapInput').value),
+        topK: Number(document.querySelector('#indexTopKInput').value),
+        candidateK: Number(document.querySelector('#candidateKInput').value),
+        rrfK: Number(document.querySelector('#rrfKInput').value),
+        rerankEnabled: document.querySelector('#rerankEnabledInput').checked,
+        queryRewriteEnabled: document.querySelector('#queryRewriteEnabledInput').checked };
+    if (payload.chunkOverlap >= payload.chunkSize) return showToast('重叠大小必须小于分块大小');
+    const button = document.querySelector('#saveIndexSettingsButton');
+    button.disabled = true;
+    try {
+        state.indexSettings = isStaticPreview ? { ...payload, reindexRequired: true }
+            : await api('/api/v1/admin/knowledge/index-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        appSettings.topK = state.indexSettings.topK;
+        renderIndexAdmin();
+        showToast('索引设置已保存');
+    } catch (error) { showToast(error.message); }
+    finally { button.disabled = false; }
+});
+document.querySelector('#reindexAllButton').addEventListener('click', async event => {
+    if (!window.confirm('将所有可用文档加入重建队列，继续吗？')) return;
+    event.currentTarget.disabled = true;
+    try {
+        const result = isStaticPreview ? { message: '已将 3 个文档加入重建队列' }
+            : await api('/api/v1/admin/knowledge/reindex', { method: 'POST' });
+        await loadIndexAdmin();
+        showToast(result.message);
+    } catch (error) { showToast(error.message); }
+    finally { event.currentTarget.disabled = false; }
 });
 document.querySelector('#closeModelProviderButton').addEventListener('click', () => elements.modelProviderDialog.close());
 document.querySelector('#cancelModelProviderButton').addEventListener('click', () => elements.modelProviderDialog.close());
@@ -1318,7 +1638,7 @@ document.querySelectorAll('.connector-button').forEach(button => {
     if (button.dataset.connector) button.addEventListener('click', () => showToast(`${button.dataset.connector}将在后续连接器阶段开放`));
 });
 
-document.querySelector('#configureFeishuButton').addEventListener('click', openFeishuConnectionDialog);
+document.querySelector('#configureFeishuButton').addEventListener('click', () => openFeishuConnectionDialog());
 document.querySelector('#closeFeishuConnectionButton').addEventListener('click', () => elements.feishuConnectionDialog.close());
 document.querySelector('#testFeishuConnectionButton').addEventListener('click', async event => {
     const button = event.currentTarget;
@@ -1355,6 +1675,7 @@ elements.feishuConnectionForm.addEventListener('submit', async event => {
         });
         elements.feishuConnectionDialog.close();
         await loadFeishuConnector();
+        if (!elements.adminShell.hidden && state.adminPage === 'add-connector') await showAdminPage('existing-connectors');
         showToast('飞书连接已保存');
     } catch (error) { showConnectorResult('#feishuConnectionResult', error.message, true); }
     finally { button.disabled = false; }
@@ -1424,7 +1745,7 @@ elements.feishuSourceForm.addEventListener('submit', async event => {
     finally { button.disabled = false; }
 });
 
-elements.feishuSourceList.addEventListener('click', async event => {
+async function handleFeishuSourceAction(event) {
     const syncButton = event.target.closest('[data-feishu-sync]');
     const toggleButton = event.target.closest('[data-feishu-toggle]');
     const deleteButton = event.target.closest('[data-feishu-source-delete]');
@@ -1449,9 +1770,11 @@ elements.feishuSourceList.addEventListener('click', async event => {
         }
         await loadFeishuConnector();
     } catch (error) { showToast(error.message); }
-});
+}
+elements.feishuSourceList.addEventListener('click', handleFeishuSourceAction);
+elements.adminSourceList.addEventListener('click', handleFeishuSourceAction);
 
-elements.feishuTaskList.addEventListener('click', async event => {
+async function handleFeishuTaskAction(event) {
     const button = event.target.closest('[data-feishu-task-retry]');
     if (!button) return;
     try {
@@ -1459,7 +1782,9 @@ elements.feishuTaskList.addEventListener('click', async event => {
         await loadFeishuConnector();
         showToast('同步任务已重新入队');
     } catch (error) { showToast(error.message); }
-});
+}
+elements.feishuTaskList.addEventListener('click', handleFeishuTaskAction);
+elements.adminTaskList.addEventListener('click', handleFeishuTaskAction);
 document.querySelector('#refreshFeishuButton').addEventListener('click', () => {
     loadFeishuConnector().catch(error => showToast(error.message));
 });
@@ -1517,7 +1842,7 @@ if (isStaticPreview) {
     renderDocuments();
     renderMemories();
     loadNotifications();
-    if (location.hash === '#admin/language-models') openAdmin(false);
+    if (location.hash.startsWith('#admin/')) openAdmin(false);
 } else {
     bootstrap();
 }
@@ -1528,7 +1853,7 @@ async function bootstrap() {
         showWorkspace();
         await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories(), loadCurrentModel()]);
         renderCurrentUser();
-        if (location.hash === '#admin/language-models') await openAdmin(false);
+        if (location.hash.startsWith('#admin/')) await openAdmin(false);
     } catch (error) {
         if (error.status === 401) showAuthPage();
         else showAuthPage(`无法连接 JadeBase：${error.message}`);

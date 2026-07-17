@@ -1,7 +1,7 @@
 package ai.jadebase.rag.infra;
 
+import ai.jadebase.knowledge.domain.IndexSettingsService;
 import ai.jadebase.model.ModelRuntimeResolver;
-import ai.jadebase.rag.application.RetrievalProperties;
 import ai.jadebase.rag.domain.QueryRewriter;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -17,14 +17,14 @@ import java.util.Map;
 public class QueryRewriterRouter implements QueryRewriter {
 
     private final ModelRuntimeResolver models;
-    private final RetrievalProperties retrieval;
+    private final IndexSettingsService indexSettings;
     private final RestClient restClient;
     private final Counter fallbackCounter;
 
-    public QueryRewriterRouter(ModelRuntimeResolver models, RetrievalProperties retrieval,
+    public QueryRewriterRouter(ModelRuntimeResolver models, IndexSettingsService indexSettings,
                                RestClient.Builder builder, MeterRegistry meters) {
         this.models = models;
-        this.retrieval = retrieval;
+        this.indexSettings = indexSettings;
         this.restClient = builder.build();
         this.fallbackCounter = meters.counter("jadebase.query_rewrite.fallback");
     }
@@ -32,7 +32,8 @@ public class QueryRewriterRouter implements QueryRewriter {
     @Override
     public String rewrite(String question, List<Turn> context) {
         ModelRuntimeResolver.RuntimeModel model = models.current();
-        if (!retrieval.queryRewriteEnabled() || !model.configured() || context == null || context.isEmpty()) {
+        if (!indexSettings.get().isQueryRewriteEnabled() || !model.configured()
+                || context == null || context.isEmpty()) {
             return question;
         }
         try {

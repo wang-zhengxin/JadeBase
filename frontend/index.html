@@ -375,10 +375,10 @@
             </section>
             <section class="admin-nav-group" data-admin-group>
                 <h2>文档与知识</h2>
-                <button class="admin-nav-item planned" data-admin-label="已有连接器" type="button"><svg class="ui-icon"><use href="#icon-book"/></svg><span>已有连接器</span></button>
-                <button class="admin-nav-item planned" data-admin-label="添加连接器" type="button"><svg class="ui-icon"><use href="#icon-attachment"/></svg><span>添加连接器</span></button>
-                <button class="admin-nav-item planned" data-admin-label="文档集" type="button"><svg class="ui-icon"><use href="#icon-files"/></svg><span>文档集</span></button>
-                <button class="admin-nav-item planned" data-admin-label="索引设置" type="button"><svg class="ui-icon"><use href="#icon-search"/></svg><span>索引设置</span></button>
+                <button class="admin-nav-item" data-admin-page="existing-connectors" type="button"><svg class="ui-icon"><use href="#icon-book"/></svg><span>已有连接器</span></button>
+                <button class="admin-nav-item" data-admin-page="add-connector" type="button"><svg class="ui-icon"><use href="#icon-attachment"/></svg><span>添加连接器</span></button>
+                <button class="admin-nav-item" data-admin-page="document-sets" type="button"><svg class="ui-icon"><use href="#icon-files"/></svg><span>文档集</span></button>
+                <button class="admin-nav-item" data-admin-page="index-settings" type="button"><svg class="ui-icon"><use href="#icon-search"/></svg><span>索引设置</span></button>
             </section>
             <section class="admin-nav-group" data-admin-group>
                 <h2>权限与组织</h2>
@@ -394,7 +394,7 @@
 
     <main class="admin-content" id="adminContent">
         <button class="icon-button admin-mobile-menu" id="openAdminSidebarButton" type="button" aria-label="打开管理导航"><svg class="ui-icon"><use href="#icon-sidebar"/></svg></button>
-        <div class="admin-content-inner">
+        <div class="admin-content-inner" data-admin-section="language-models">
             <header class="admin-page-header">
                 <svg class="ui-icon" aria-hidden="true"><use href="#icon-cpu"/></svg>
                 <h1>语言模型</h1>
@@ -416,8 +416,129 @@
                 <div class="provider-catalog-grid" id="providerCatalogGrid"></div>
             </section>
         </div>
+
+        <div class="admin-content-inner" data-admin-section="existing-connectors" hidden>
+            <header class="admin-page-header">
+                <svg class="ui-icon" aria-hidden="true"><use href="#icon-book"/></svg>
+                <h1>已有连接器</h1>
+            </header>
+            <section class="admin-summary-strip" id="connectorSummaryStrip">
+                <div><strong id="connectorConnectionCount">0</strong><span>连接实例</span></div>
+                <div><strong id="connectorSourceCount">0</strong><span>同步来源</span></div>
+                <div><strong id="connectorRunningCount">0</strong><span>活动任务</span></div>
+            </section>
+            <section class="admin-knowledge-section">
+                <div class="admin-section-title"><div><h2>连接实例</h2><p>管理凭证、连接状态与同步来源。</p></div><div class="admin-title-actions"><button class="secondary-button" id="adminAddConnectorButton" type="button"><svg class="ui-icon"><use href="#icon-add"/></svg> 添加连接器</button><button class="icon-button" id="adminRefreshConnectorsButton" type="button" aria-label="刷新连接器" title="刷新"><svg class="ui-icon"><use href="#icon-sync"/></svg></button></div></div>
+                <div class="admin-connector-list" id="adminConnectorList"><p class="admin-empty-state">正在加载连接器</p></div>
+            </section>
+            <section class="admin-knowledge-section">
+                <div class="admin-section-title"><div><h2>同步来源</h2><p>远程目录与目标知识库之间的持续同步关系。</p></div><button class="secondary-button" id="adminAddSourceButton" type="button"><svg class="ui-icon"><use href="#icon-add"/></svg> 添加来源</button></div>
+                <div class="admin-source-list" id="adminSourceList"><p class="admin-empty-state">正在加载同步来源</p></div>
+            </section>
+            <section class="admin-knowledge-section">
+                <div class="admin-section-title"><div><h2>最近同步</h2><p>查看任务进度、变更数量与失败原因。</p></div></div>
+                <div class="admin-task-list" id="adminTaskList"><p class="admin-empty-state">正在加载同步任务</p></div>
+            </section>
+        </div>
+
+        <div class="admin-content-inner" data-admin-section="add-connector" hidden>
+            <header class="admin-page-header">
+                <svg class="ui-icon" aria-hidden="true"><use href="#icon-attachment"/></svg>
+                <h1>添加连接器</h1>
+            </header>
+            <section class="connector-catalog-intro">
+                <h2>连接企业知识来源</h2>
+                <p>选择连接器后配置企业应用凭证，再将远程目录绑定到 JadeBase 知识库。</p>
+            </section>
+            <section class="admin-connector-catalog" aria-label="连接器目录">
+                <button class="admin-connector-catalog-item available" id="catalogFeishuButton" type="button">
+                    <span class="connector-brand feishu">飞</span><span><strong>飞书云文档</strong><small>Wiki 空间与云盘文件夹</small></span><span class="catalog-status">配置</span>
+                </button>
+                <article class="admin-connector-catalog-item unavailable">
+                    <span class="connector-brand wecom">企</span><span><strong>企业微信</strong><small>企业文档与知识库</small></span><span class="catalog-status">规划中</span>
+                </article>
+                <article class="admin-connector-catalog-item unavailable">
+                    <span class="connector-brand dingtalk">钉</span><span><strong>钉钉知识库</strong><small>知识空间与团队文件</small></span><span class="catalog-status">规划中</span>
+                </article>
+            </section>
+        </div>
+
+        <div class="admin-content-inner" data-admin-section="document-sets" hidden>
+            <header class="admin-page-header">
+                <svg class="ui-icon" aria-hidden="true"><use href="#icon-files"/></svg>
+                <h1>文档集</h1>
+            </header>
+            <section class="admin-summary-strip document-summary-strip">
+                <div><strong id="documentSetCount">0</strong><span>文档集</span></div>
+                <div><strong id="inventoryDocumentCount">0</strong><span>全部文档</span></div>
+                <div><strong id="inventoryReadyCount">0</strong><span>已就绪</span></div>
+                <div><strong id="inventoryChunkCount">0</strong><span>索引片段</span></div>
+            </section>
+            <section class="admin-knowledge-section">
+                <div class="admin-section-title"><div><h2>工作区文档集</h2><p>跨知识库组合文档，便于后续为 Agent 和权限策略复用。</p></div><button class="primary-button compact-command" id="createDocumentSetButton" type="button"><svg class="ui-icon"><use href="#icon-add"/></svg> 新建文档集</button></div>
+                <div class="document-set-list" id="documentSetList"><p class="admin-empty-state">正在加载文档集</p></div>
+            </section>
+        </div>
+
+        <div class="admin-content-inner" data-admin-section="index-settings" hidden>
+            <header class="admin-page-header">
+                <svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg>
+                <h1>索引设置</h1>
+            </header>
+            <section class="admin-summary-strip index-summary-strip">
+                <div><strong id="indexKnowledgeBaseCount">0</strong><span>知识库</span></div>
+                <div><strong id="indexDocumentCount">0</strong><span>文档</span></div>
+                <div><strong id="indexFailedCount">0</strong><span>失败任务</span></div>
+                <div><strong id="indexSizeTotal">0 B</strong><span>原始内容</span></div>
+            </section>
+            <form class="index-settings-form" id="indexSettingsForm">
+                <section class="admin-knowledge-section index-form-section">
+                    <div class="admin-section-title"><div><h2>分块策略</h2><p>新文档会立即使用这些参数；已有文档需要重新构建。</p></div><span class="reindex-badge" id="reindexRequiredBadge" hidden>需要重建</span></div>
+                    <div class="index-setting-rows">
+                        <label><span><strong>分块大小</strong><small>每个片段的目标字符数</small></span><input id="chunkSizeInput" type="number" min="200" max="4000" step="50" required></label>
+                        <label><span><strong>重叠大小</strong><small>相邻片段保留的上下文字符数</small></span><input id="chunkOverlapInput" type="number" min="0" max="1000" step="10" required></label>
+                    </div>
+                </section>
+                <section class="admin-knowledge-section index-form-section">
+                    <div class="admin-section-title"><div><h2>混合检索</h2><p>控制结果数量、候选池和 RRF 排名融合。</p></div></div>
+                    <div class="index-setting-rows">
+                        <label><span><strong>回答片段数</strong><small>最终发送给语言模型的上下文数量</small></span><input id="indexTopKInput" type="number" min="1" max="12" required></label>
+                        <label><span><strong>候选片段数</strong><small>向量与关键词检索各自召回上限</small></span><input id="candidateKInput" type="number" min="10" max="200" step="5" required></label>
+                        <label><span><strong>RRF 常数</strong><small>越大越平滑地融合两个排名列表</small></span><input id="rrfKInput" type="number" min="1" max="200" required></label>
+                    </div>
+                </section>
+                <section class="admin-knowledge-section index-form-section">
+                    <div class="admin-section-title"><div><h2>检索增强</h2><p>按工作区控制查询改写和结果重排。</p></div></div>
+                    <div class="index-toggle-rows">
+                        <label><span><strong>结果重排</strong><small>配置 Reranker 后对融合结果进行二次排序</small></span><span class="toggle"><input id="rerankEnabledInput" type="checkbox"><span></span></span></label>
+                        <label><span><strong>查询改写</strong><small>结合最近对话将追问改写为独立检索问题</small></span><span class="toggle"><input id="queryRewriteEnabledInput" type="checkbox"><span></span></span></label>
+                    </div>
+                </section>
+                <footer class="index-settings-actions"><button class="secondary-button" id="reindexAllButton" type="button"><svg class="ui-icon"><use href="#icon-sync"/></svg> 重建全部索引</button><button class="primary-button" id="saveIndexSettingsButton" type="submit">保存设置</button></footer>
+            </form>
+        </div>
     </main>
 </div>
+
+<dialog class="model-provider-dialog document-set-dialog" id="documentSetDialog">
+    <form id="documentSetForm">
+        <header class="model-provider-header">
+            <div class="model-provider-identity"><span class="provider-mark"><svg class="ui-icon"><use href="#icon-files"/></svg></span><div><h2 id="documentSetDialogTitle">新建文档集</h2><p>选择来自一个或多个知识库的文档。</p></div></div>
+            <button class="icon-button" id="closeDocumentSetDialogButton" type="button" aria-label="关闭"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+        </header>
+        <div class="model-provider-body document-set-dialog-body">
+            <input id="documentSetId" type="hidden">
+            <label for="documentSetNameInput">名称</label>
+            <input id="documentSetNameInput" maxlength="120" required placeholder="例如：售前标准资料">
+            <label for="documentSetDescriptionInput">描述 <span>（可选）</span></label>
+            <textarea id="documentSetDescriptionInput" maxlength="500" rows="3" placeholder="说明这个文档集的使用范围"></textarea>
+            <div class="model-selection-heading"><div><h3>选择文档</h3><p id="documentSetSelectionCount">已选择 0 个文档</p></div><button id="selectAllDocumentsButton" type="button">全选</button></div>
+            <label class="document-picker-search" for="documentPickerSearch"><svg class="ui-icon"><use href="#icon-search"/></svg><input id="documentPickerSearch" autocomplete="off" placeholder="搜索文档或知识库"></label>
+            <div class="document-picker-list" id="documentPickerList"><p>正在加载文档</p></div>
+        </div>
+        <footer class="model-provider-footer"><button class="danger-outline-button" id="deleteDocumentSetButton" type="button" hidden>删除文档集</button><span></span><button class="secondary-button" id="cancelDocumentSetButton" type="button">取消</button><button class="primary-button" id="saveDocumentSetButton" type="submit">保存文档集</button></footer>
+    </form>
+</dialog>
 
 <dialog class="create-dialog" id="createDialog">
     <form id="createForm" method="dialog">
