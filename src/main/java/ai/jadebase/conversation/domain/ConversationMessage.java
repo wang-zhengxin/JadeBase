@@ -29,6 +29,12 @@ public class ConversationMessage {
     @Column(columnDefinition = "TEXT")
     private String content;
     private String mode;
+    @Column(name = "reasoning_content", columnDefinition = "TEXT")
+    private String reasoningContent;
+    @Column(name = "thinking_duration_ms")
+    private long thinkingDurationMs;
+    @Column(name = "thinking_steps")
+    private int thinkingSteps;
     @Column(name = "created_at")
     private Instant createdAt;
 
@@ -36,10 +42,18 @@ public class ConversationMessage {
     }
 
     public ConversationMessage(UUID conversationId, Role role, String content, String mode) {
+        this(conversationId, role, content, mode, null, 0, 0);
+    }
+
+    public ConversationMessage(UUID conversationId, Role role, String content, String mode,
+                               String reasoningContent, long thinkingDurationMs, int thinkingSteps) {
         this.conversationId = conversationId;
         this.role = role;
         this.content = content;
         this.mode = mode;
+        this.reasoningContent = reasoningContent;
+        this.thinkingDurationMs = thinkingDurationMs;
+        this.thinkingSteps = thinkingSteps;
         this.createdAt = Instant.now();
     }
 
@@ -48,5 +62,8 @@ public class ConversationMessage {
     public Role getRole() { return role; }
     public String getContent() { return content; }
     public String getMode() { return mode; }
+    public String getReasoningContent() { return reasoningContent; }
+    public long getThinkingDurationMs() { return thinkingDurationMs; }
+    public int getThinkingSteps() { return thinkingSteps; }
     public Instant getCreatedAt() { return createdAt; }
 }

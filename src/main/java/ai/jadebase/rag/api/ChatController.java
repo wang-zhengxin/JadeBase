@@ -10,26 +10,67 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 
 @RestController
 @RequestMapping("/api/v1/chat")
 public class ChatController {
 
     private final ChatService chatService;
+    private final Executor chatExecutor;
 
-    public ChatController(ChatService chatService) {
+    public ChatController(ChatService chatService, @Qualifier("chatExecutor") Executor chatExecutor) {
         this.chatService = chatService;
+        this.chatExecutor = chatExecutor;
     }
 
     @PostMapping
     public ChatService.ChatResult ask(@Valid @RequestBody AskRequest request) {
         return chatService.ask(request.knowledgeBaseId(), request.conversationId(), request.question(),
-                request.topK(), request.language());
+                request.topK(), request.language(), Boolean.TRUE.equals(request.thinkMode()));
+    }
+
+    @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@Valid @RequestBody AskRequest request) {
+        SseEmitter emitter = new SseEmitter(180_000L);
+        boolean thinkMode = Boolean.TRUE.equals(request.thinkMode());
+        if (thinkMode) send(emitter, "thinking", new ThinkingEvent("retrieval", "正在分析问题并检索知识库…"));
+        chatExecutor.execute(() -> {
+            try {
+                ChatService.ChatResult result = chatService.ask(request.knowledgeBaseId(), request.conversationId(),
+                        request.question(), request.topK(), request.language(), thinkMode);
+                send(emitter, "result", result);
+                emitter.complete();
+            } catch (Exception exception) {
+                send(emitter, "error", Map.of("message", safeMessage(exception)));
+                emitter.complete();
+            }
+        });
+        return emitter;
+    }
+
+    private void send(SseEmitter emitter, String name, Object data) {
+        try {
+            emitter.send(SseEmitter.event().name(name).data(data));
+        } catch (IOException exception) {
+            emitter.completeWithError(exception);
+        }
+    }
+
+    private String safeMessage(Exception exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? "回答生成失败" : message;
     }
 
     public record AskRequest(@NotNull UUID knowledgeBaseId, UUID conversationId,
                              @NotBlank String question, @Min(1) @Max(12) Integer topK,
-                             String language) { }
+                             String language, Boolean thinkMode) { }
+    public record ThinkingEvent(String stage, String message) { }
 }

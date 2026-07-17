@@ -6,7 +6,8 @@ const state = { currentUser: null, knowledgeBases: [], activeId: null, documents
     currentModel: null, adminPage: 'language-models', knowledgeSummary: null, adminDocuments: [],
     documentSets: [], indexSettings: null, userAdmin: null, userPage: 0,
     userFilters: { query: '', role: 'all', status: 'all' },
-    registrationPolicy: { restrictOpenSignup: false, invitationValid: false, invitationEmail: null } };
+    registrationPolicy: { restrictOpenSignup: false, invitationValid: false, invitationEmail: null },
+    thinkMode: false };
 
 const inviteToken = new URLSearchParams(location.search).get('invite') || '';
 
@@ -41,6 +42,7 @@ const elements = {
     chatForm: document.querySelector('#chatForm'),
     questionInput: document.querySelector('#questionInput'),
     sendButton: document.querySelector('#sendButton'),
+    thinkModeButton: document.querySelector('#thinkModeButton'),
     fileInput: document.querySelector('#fileInput'),
     createDialog: document.querySelector('#createDialog'),
     createForm: document.querySelector('#createForm'),
@@ -454,7 +456,9 @@ async function openConversation(conversationId) {
     await loadDocuments();
     elements.messages.innerHTML = '';
     elements.emptyState = null;
-    conversation.messages.forEach(message => appendMessage(message.role, message.content, message.sources));
+    conversation.messages.forEach(message => appendMessage(message.role, message.content, message.sources, {
+        reasoning: message.reasoning, durationMs: message.thinkingDurationMs, steps: message.thinkingSteps
+    }));
     elements.historyDialog.close();
     closeSettings();
 }
@@ -963,12 +967,38 @@ function exportCurrentUsers() {
     URL.revokeObjectURL(link.href);
 }
 
-function appendMessage(role, text, sources = []) {
+function formatThinkingDuration(durationMs) {
+    if (!durationMs) return '不到 1 秒';
+    if (durationMs < 1000) return '不到 1 秒';
+    return `${Math.max(1, Math.round(durationMs / 1000))} 秒`;
+}
+
+function thinkingMarkup(thinking = {}) {
+    if (!thinking.pending && !thinking.reasoning) return '';
+    const status = thinking.pending ? escapeHtml(thinking.status || '正在分析问题并检索知识库…')
+        : escapeHtml(thinking.reasoning);
+    const title = thinking.pending ? '正在思考' : `思考了 ${formatThinkingDuration(thinking.durationMs)}`;
+    const steps = Math.max(1, thinking.steps || 1);
+    return `
+        <section class="thinking-trace ${thinking.pending ? 'pending' : ''}" data-thinking-trace>
+            <button class="thinking-header" type="button" data-thinking-toggle aria-expanded="true">
+                <span>${escapeHtml(title)}</span>
+                <span class="thinking-step-count">${thinking.pending ? '处理中' : `${steps} 步`}</span>
+                ${iconMarkup('chevron-down')}
+            </button>
+            <div class="thinking-content" data-thinking-content>
+                <p>${status}</p>
+                <span class="thinking-done">${thinking.pending ? iconMarkup('hourglass') + ' 推理中' : iconMarkup('check') + ' 完成'}</span>
+            </div>
+        </section>`;
+}
+
+function renderMessageArticle(article, role, text, sources = [], thinking = {}) {
+    article.className = `message ${role}`;
+    article.dataset.messageText = text || '';
+    if (role === 'assistant' && appSettings.smoothStreaming) article.classList.add('smooth-enter');
     elements.emptyState?.remove();
     elements.chatPanel.classList.remove('welcome-mode');
-    const article = document.createElement('article');
-    article.className = `message ${role}`;
-    if (role === 'assistant' && appSettings.smoothStreaming) article.classList.add('smooth-enter');
     const sourceMarkup = sources.length && appSettings.showCitations ? `
         <div class="sources">
             ${sources.map((source, index) => `
@@ -980,12 +1010,66 @@ function appendMessage(role, text, sources = []) {
                     <p class="source-snippet">${escapeHtml(source.snippet)}</p>
                 </div>`).join('')}
         </div>` : '';
+    if (role === 'user') {
+        article.innerHTML = `<div class="message-body">${escapeHtml(text)}</div>`;
+        return;
+    }
+    const actions = thinking.pending ? '' : `
+        <div class="message-actions" aria-label="回答操作">
+            <button type="button" data-message-action="copy" title="复制回答" aria-label="复制回答">${iconMarkup('copy')}</button>
+            <button type="button" data-message-action="like" title="有帮助" aria-label="有帮助">${iconMarkup('thumbs-up')}</button>
+            <button type="button" data-message-action="dislike" title="需要改进" aria-label="需要改进">${iconMarkup('thumbs-down')}</button>
+            <button type="button" data-message-action="regenerate" title="重新生成" aria-label="重新生成">${iconMarkup('sync')}</button>
+        </div>`;
     article.innerHTML = `
-        <div class="message-label">${role === 'user' ? '你' : 'JadeBase'}</div>
-        <div class="message-body">${escapeHtml(text)}</div>
-        ${sourceMarkup}`;
+        <span class="assistant-avatar jade-logo small" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <div class="assistant-message-content">
+            ${thinkingMarkup(thinking)}
+            ${text ? `<div class="message-body">${escapeHtml(text)}</div>` : ''}
+            ${sourceMarkup}
+            ${actions}
+        </div>`;
+}
+
+function appendMessage(role, text, sources = [], thinking = {}) {
+    const article = document.createElement('article');
+    renderMessageArticle(article, role, text, sources, thinking);
     elements.messages.appendChild(article);
     if (appSettings.autoScroll) elements.messages.scrollTop = elements.messages.scrollHeight;
+    return article;
+}
+
+async function streamChat(payload, onEvent) {
+    const response = await fetch(`${apiBaseUrl}/api/v1/chat/stream`, {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        let message = `请求失败 (${response.status})`;
+        try { message = (await response.json()).message || message; } catch (_) { /* no-op */ }
+        throw new Error(message);
+    }
+    if (!response.body) throw new Error('浏览器不支持流式回答');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replaceAll('\r\n', '\n');
+        let boundary;
+        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+            const block = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            let eventName = 'message';
+            const data = [];
+            block.split('\n').forEach(line => {
+                if (line.startsWith('event:')) eventName = line.slice(6).trim();
+                if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+            });
+            if (data.length) onEvent(eventName, JSON.parse(data.join('\n')));
+        }
+        if (done) break;
+    }
 }
 
 let modelDialogModels = [];
@@ -1172,30 +1256,55 @@ elements.chatForm.addEventListener('submit', async event => {
     appendMessage('user', question);
     elements.questionInput.value = '';
     if (isStaticPreview) {
-        appendMessage('assistant', '这是 JadeBase 静态预览。连接本地服务后即可检索知识库并生成带引用的回答。');
+        appendMessage('assistant', '这是 JadeBase 静态预览。连接本地服务后即可检索知识库并生成带引用的回答。', [],
+            state.thinkMode ? { reasoning: '已理解问题，并检查当前知识库与模型连接状态。', durationMs: 620, steps: 1 } : {});
         return;
     }
     elements.sendButton.disabled = true;
     elements.sendButton.innerHTML = iconMarkup('hourglass');
+    let pendingMessage = state.thinkMode
+        ? appendMessage('assistant', '', [], { pending: true, status: '正在分析问题并检索知识库…', steps: 1 })
+        : null;
     try {
-        const result = await api('/api/v1/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ knowledgeBaseId: state.activeId, conversationId: state.conversationId,
-                question, topK: appSettings.topK, language: appSettings.language })
+        let result = null;
+        await streamChat({ knowledgeBaseId: state.activeId, conversationId: state.conversationId,
+            question, topK: appSettings.topK, language: appSettings.language, thinkMode: state.thinkMode },
+        (eventName, data) => {
+            if (eventName === 'thinking' && pendingMessage) {
+                renderMessageArticle(pendingMessage, 'assistant', '', [], {
+                    pending: true, status: data.message, steps: 1
+                });
+            }
+            if (eventName === 'result') result = data;
+            if (eventName === 'error') throw new Error(data.message || '回答生成失败');
         });
+        if (!result) throw new Error('模型未返回完整回答');
         state.conversationId = result.conversationId;
-        appendMessage('assistant', result.answer, result.sources);
+        if (pendingMessage) {
+            renderMessageArticle(pendingMessage, 'assistant', result.answer, result.sources, {
+                reasoning: result.reasoning, durationMs: result.thinkingDurationMs, steps: result.thinkingSteps
+            });
+        } else {
+            appendMessage('assistant', result.answer, result.sources);
+        }
         setModelStatus(result.mode === 'model' ? result.model : '本地演示');
         if (appSettings.updateMemories && /^记住[：:]/.test(question)) await loadMemories();
     } catch (error) {
         showToast(error.message);
-        appendMessage('assistant', '回答生成失败，请稍后重试。');
+        if (pendingMessage) renderMessageArticle(pendingMessage, 'assistant', '回答生成失败，请稍后重试。');
+        else appendMessage('assistant', '回答生成失败，请稍后重试。');
     } finally {
         elements.sendButton.disabled = false;
         elements.sendButton.innerHTML = iconMarkup('send');
         elements.questionInput.focus();
     }
+});
+
+elements.thinkModeButton.addEventListener('click', () => {
+    state.thinkMode = !state.thinkMode;
+    elements.thinkModeButton.classList.toggle('active', state.thinkMode);
+    elements.thinkModeButton.setAttribute('aria-pressed', String(state.thinkMode));
+    showToast(state.thinkMode ? '已开启深度思考' : '已关闭深度思考');
 });
 
 elements.fileInput.addEventListener('change', async () => {
@@ -1874,7 +1983,53 @@ elements.messages.addEventListener('submit', async event => {
 });
 
 elements.messages.addEventListener('click', event => {
-    if (event.target.closest('[data-welcome-add]')) document.querySelector('#openCreateButton').click();
+    if (event.target.closest('[data-welcome-add]')) {
+        document.querySelector('#openCreateButton').click();
+        return;
+    }
+    const toggle = event.target.closest('[data-thinking-toggle]');
+    if (toggle) {
+        const trace = toggle.closest('[data-thinking-trace]');
+        const collapsed = trace.classList.toggle('collapsed');
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+        return;
+    }
+    const action = event.target.closest('[data-message-action]');
+    if (!action) return;
+    const article = action.closest('.message.assistant');
+    if (action.dataset.messageAction === 'copy') {
+        navigator.clipboard.writeText(article.dataset.messageText || '').then(() => showToast('回答已复制'));
+    }
+    if (action.dataset.messageAction === 'like' || action.dataset.messageAction === 'dislike') {
+        article.querySelectorAll('[data-message-action="like"], [data-message-action="dislike"]')
+            .forEach(button => button.classList.toggle('active', button === action && !action.classList.contains('active')));
+    }
+    if (action.dataset.messageAction === 'regenerate') {
+        const userMessage = article.previousElementSibling;
+        if (userMessage?.classList.contains('user')) {
+            elements.questionInput.value = userMessage.dataset.messageText || '';
+            elements.chatForm.requestSubmit();
+        }
+    }
+});
+document.querySelector('.composer-context [data-welcome-add]').addEventListener('click', () => {
+    document.querySelector('#openCreateButton').click();
+});
+document.querySelector('#shareConversationButton').addEventListener('click', async () => {
+    if (!state.conversationId) return showToast('发送消息后即可分享当前对话');
+    const shareData = { title: 'JadeBase 对话', text: 'JadeBase 对话分享', url: location.href };
+    try {
+        if (navigator.share) await navigator.share(shareData);
+        else {
+            await navigator.clipboard.writeText(location.href);
+            showToast('对话链接已复制');
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') showToast('暂时无法分享对话');
+    }
+});
+document.querySelector('#conversationMoreButton').addEventListener('click', () => {
+    showToast('更多对话操作将在会话管理阶段开放');
 });
 document.querySelectorAll('[data-background]').forEach(button => {
     button.addEventListener('click', () => {
