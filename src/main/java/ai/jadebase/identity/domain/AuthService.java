@@ -1,5 +1,6 @@
 package ai.jadebase.identity.domain;
 
+import ai.jadebase.identity.admin.UserAdminService;
 import ai.jadebase.identity.infra.AuthSessionRepository;
 import ai.jadebase.identity.infra.JadeUserRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -26,20 +27,22 @@ public class AuthService {
 
     private final JadeUserRepository users;
     private final AuthSessionRepository sessions;
+    private final UserAdminService userAdminService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(10);
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public AuthService(JadeUserRepository users, AuthSessionRepository sessions) {
+    public AuthService(JadeUserRepository users, AuthSessionRepository sessions, UserAdminService userAdminService) {
         this.users = users;
         this.sessions = sessions;
+        this.userAdminService = userAdminService;
     }
 
     @Transactional
-    public SessionResult register(String rawEmail, String password) {
+    public SessionResult register(String rawEmail, String password, String inviteToken) {
         String email = normalizeEmail(rawEmail);
         validatePassword(password);
         if (users.existsByEmail(email)) throw new IdentityConflictException("该邮箱已注册");
-        JadeUser.Role role = users.count() == 0 ? JadeUser.Role.OWNER : JadeUser.Role.MEMBER;
+        JadeUser.Role role = userAdminService.claimRegistration(email, inviteToken);
         JadeUser user = users.save(new JadeUser(email, passwordEncoder.encode(password), role));
         return createSession(user);
     }
@@ -49,6 +52,7 @@ public class AuthService {
         String email = normalizeEmail(rawEmail);
         JadeUser user = users.findByEmail(email)
                 .orElseThrow(() -> new AuthenticationException("邮箱或密码错误"));
+        if (user.getStatus() != JadeUser.Status.ACTIVE) throw new AuthenticationException("该账号已被停用");
         if (!passwordEncoder.matches(password == null ? "" : password, user.getPasswordHash())) {
             throw new AuthenticationException("邮箱或密码错误");
         }
@@ -58,9 +62,11 @@ public class AuthService {
     @Transactional(readOnly = true)
     public JadeUser authenticate(String token) {
         if (token == null || token.isBlank()) throw new AuthenticationException("请先登录");
-        return sessions.findActive(hashToken(token), Instant.now())
+        JadeUser user = sessions.findActive(hashToken(token), Instant.now())
                 .map(AuthSession::getUser)
                 .orElseThrow(() -> new AuthenticationException("登录已过期，请重新登录"));
+        if (user.getStatus() != JadeUser.Status.ACTIVE) throw new AuthenticationException("该账号已被停用");
+        return user;
     }
 
     @Transactional
@@ -94,6 +100,8 @@ public class AuthService {
         secureRandom.nextBytes(tokenBytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
         Instant expiresAt = Instant.now().plus(SESSION_TTL);
+        user.recordLogin();
+        users.save(user);
         sessions.save(new AuthSession(user, hashToken(token), expiresAt));
         return new SessionResult(user, token, expiresAt);
     }
@@ -122,4 +130,9 @@ public class AuthService {
     }
 
     public record SessionResult(JadeUser user, String token, Instant expiresAt) { }
+
+    @Transactional(readOnly = true)
+    public UserAdminService.AccessPolicyView registrationPolicy(String inviteToken) {
+        return userAdminService.registrationPolicy(inviteToken);
+    }
 }

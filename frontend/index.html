@@ -13,6 +13,13 @@
     <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M13.5 6.5 17.5 2.5a1.8 1.8 0 0 1 2.5 2.5L16 9l-4 1 1.5-3.5ZM11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6"/></symbol>
     <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
     <symbol id="icon-user" viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5"/><path d="M5.5 21v-3.5a5 5 0 0 1 5-5h3a5 5 0 0 1 5 5V21"/></symbol>
+    <symbol id="icon-user-add" viewBox="0 0 24 24"><path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M19 8v6M16 11h6"/></symbol>
+    <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+    <symbol id="icon-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" class="icon-fill"/><circle cx="12" cy="12" r="1" class="icon-fill"/><circle cx="19" cy="12" r="1" class="icon-fill"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="icon-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
     <symbol id="icon-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"/><circle cx="12" cy="12" r=".8" class="icon-fill"/></symbol>
     <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z"/></symbol>
     <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
@@ -382,7 +389,7 @@
             </section>
             <section class="admin-nav-group" data-admin-group>
                 <h2>权限与组织</h2>
-                <button class="admin-nav-item planned" data-admin-label="用户" type="button"><svg class="ui-icon"><use href="#icon-user"/></svg><span>用户</span></button>
+                <button class="admin-nav-item" data-admin-page="users" type="button"><svg class="ui-icon"><use href="#icon-user"/></svg><span>用户</span></button>
                 <button class="admin-nav-item planned" data-admin-label="安全加固" type="button"><svg class="ui-icon"><use href="#icon-shield"/></svg><span>安全加固</span></button>
             </section>
         </nav>
@@ -517,8 +524,69 @@
                 <footer class="index-settings-actions"><button class="secondary-button" id="reindexAllButton" type="button"><svg class="ui-icon"><use href="#icon-sync"/></svg> 重建全部索引</button><button class="primary-button" id="saveIndexSettingsButton" type="submit">保存设置</button></footer>
             </form>
         </div>
+
+        <div class="admin-content-inner users-admin-page" data-admin-section="users" hidden>
+            <header class="admin-page-header users-page-header">
+                <div><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"/></svg><h1>用户与邀请</h1></div>
+                <button class="primary-button compact-command" id="inviteUsersButton" type="button"><svg class="ui-icon"><use href="#icon-user-add"/></svg> 邀请用户</button>
+            </header>
+
+            <section class="user-overview-row">
+                <div class="admin-summary-strip user-summary-strip">
+                    <div><strong id="activeUserCount">0</strong><span>有效用户</span></div>
+                    <div><strong id="pendingInviteCount">0</strong><span>待接受邀请</span></div>
+                </div>
+                <label class="user-access-policy">
+                    <span><strong>限制开放注册</strong><small>新用户必须通过邀请链接加入工作区</small></span>
+                    <span class="toggle"><input id="restrictSignupToggle" type="checkbox"><span></span></span>
+                </label>
+            </section>
+
+            <section class="user-directory" aria-labelledby="userDirectoryHeading">
+                <h2 class="sr-only" id="userDirectoryHeading">工作区用户</h2>
+                <label class="user-directory-search" for="userSearchInput"><svg class="ui-icon"><use href="#icon-search"/></svg><input id="userSearchInput" autocomplete="off" placeholder="搜索姓名或邮箱"></label>
+                <div class="user-directory-toolbar">
+                    <label><span>账号类型</span><select id="userRoleFilter"><option value="all">全部</option><option value="owner">所有者</option><option value="member">成员</option></select></label>
+                    <label><span>状态</span><select id="userStatusFilter"><option value="all">全部</option><option value="active">有效</option><option value="suspended">已停用</option></select></label>
+                    <button class="icon-button" id="exportUsersButton" type="button" title="导出当前列表" aria-label="导出当前用户列表"><svg class="ui-icon"><use href="#icon-download"/></svg></button>
+                    <button class="icon-button" id="refreshUsersButton" type="button" title="刷新" aria-label="刷新用户列表"><svg class="ui-icon"><use href="#icon-sync"/></svg></button>
+                </div>
+                <div class="user-table-wrap">
+                    <table class="user-table">
+                        <thead><tr><th>用户</th><th>账号类型</th><th>状态</th><th>最近更新</th><th><span class="sr-only">操作</span></th></tr></thead>
+                        <tbody id="userTableBody"><tr><td colspan="5" class="admin-empty-state">正在加载用户</td></tr></tbody>
+                    </table>
+                </div>
+                <footer class="user-pagination"><span id="userPaginationSummary">0 个用户</span><div><button class="icon-button" id="previousUserPageButton" type="button" aria-label="上一页"><svg class="ui-icon"><use href="#icon-chevron-left"/></svg></button><span id="userPageNumber">1</span><button class="icon-button" id="nextUserPageButton" type="button" aria-label="下一页"><svg class="ui-icon"><use href="#icon-chevron-right"/></svg></button></div></footer>
+            </section>
+
+            <section class="pending-invitations" id="pendingInvitationsSection" hidden>
+                <div class="admin-section-title"><div><h2>待接受邀请</h2><p>邀请链接会在七天后失效。</p></div></div>
+                <div class="pending-invitation-list" id="pendingInvitationList"></div>
+            </section>
+        </div>
     </main>
 </div>
+
+<dialog class="model-provider-dialog invite-users-dialog" id="inviteUsersDialog">
+    <form id="inviteUsersForm">
+        <header class="model-provider-header">
+            <div class="model-provider-identity"><span class="provider-mark"><svg class="ui-icon"><use href="#icon-user-add"/></svg></span><div><h2>邀请用户</h2><p>创建一个七天内有效的工作区邀请。</p></div></div>
+            <button class="icon-button" id="closeInviteUsersDialogButton" type="button" aria-label="关闭"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+        </header>
+        <div class="model-provider-body invite-users-body">
+            <label for="inviteEmailInput">邮箱地址</label>
+            <input id="inviteEmailInput" type="email" maxlength="320" autocomplete="off" required placeholder="name@company.com">
+            <label for="inviteRoleSelect">账号类型</label>
+            <select id="inviteRoleSelect"><option value="member">成员</option><option value="owner">所有者</option></select>
+            <div class="invite-link-result" id="inviteLinkResult" hidden>
+                <span><strong>邀请链接已创建</strong><small id="inviteResultEmail"></small></span>
+                <div><input id="inviteLinkOutput" readonly><button class="icon-button" id="copyInviteLinkButton" type="button" aria-label="复制邀请链接" title="复制链接"><svg class="ui-icon"><use href="#icon-copy"/></svg></button></div>
+            </div>
+        </div>
+        <footer class="model-provider-footer"><span></span><button class="secondary-button" id="cancelInviteUsersButton" type="button">取消</button><button class="primary-button" id="createInvitationButton" type="submit">创建邀请</button></footer>
+    </form>
+</dialog>
 
 <dialog class="model-provider-dialog document-set-dialog" id="documentSetDialog">
     <form id="documentSetForm">

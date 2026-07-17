@@ -15,6 +15,7 @@ import java.util.UUID;
 public class JadeUser {
 
     public enum Role { OWNER, MEMBER }
+    public enum Status { ACTIVE, SUSPENDED }
 
     @Id
     private UUID id;
@@ -32,11 +33,18 @@ public class JadeUser {
     @Column(nullable = false, length = 32)
     private Role role;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 24)
+    private Status status;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    @Column(name = "last_login_at")
+    private Instant lastLoginAt;
 
     protected JadeUser() { }
 
@@ -46,6 +54,7 @@ public class JadeUser {
         this.displayName = "";
         this.passwordHash = passwordHash;
         this.role = role;
+        this.status = Status.ACTIVE;
         this.createdAt = Instant.now();
         this.updatedAt = createdAt;
     }
@@ -60,11 +69,27 @@ public class JadeUser {
         this.updatedAt = Instant.now();
     }
 
+    public void changeRole(Role role) {
+        this.role = role;
+        this.updatedAt = Instant.now();
+    }
+
+    public void changeStatus(Status status) {
+        this.status = status;
+        this.updatedAt = Instant.now();
+    }
+
+    public void recordLogin() {
+        this.lastLoginAt = Instant.now();
+    }
+
     public UUID getId() { return id; }
     public String getEmail() { return email; }
     public String getDisplayName() { return displayName; }
     public String getPasswordHash() { return passwordHash; }
     public Role getRole() { return role; }
+    public Status getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Instant getLastLoginAt() { return lastLoginAt; }
 }
