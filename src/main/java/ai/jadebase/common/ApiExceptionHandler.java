@@ -3,6 +3,7 @@ package ai.jadebase.common;
 import ai.jadebase.identity.domain.AuthenticationException;
 import ai.jadebase.identity.domain.IdentityConflictException;
 import ai.jadebase.connector.feishu.FeishuApiException;
+import ai.jadebase.model.ModelProviderException;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +29,11 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(FeishuApiException.class)
     ResponseEntity<Map<String, Object>> connectorError(FeishuApiException exception) {
+        return error(HttpStatus.BAD_GATEWAY, exception.getMessage());
+    }
+
+    @ExceptionHandler(ModelProviderException.class)
+    ResponseEntity<Map<String, Object>> modelProviderError(ModelProviderException exception) {
         return error(HttpStatus.BAD_GATEWAY, exception.getMessage());
     }
 
