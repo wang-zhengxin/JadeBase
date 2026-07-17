@@ -4,7 +4,11 @@ const state = { currentUser: null, knowledgeBases: [], activeId: null, documents
     conversations: [], memories: [], documentEvents: null, documentEventKnowledgeBaseId: null,
     feishuConnections: [], feishuSources: [], feishuTasks: [], modelCatalog: [], modelProviders: [],
     currentModel: null, adminPage: 'language-models', knowledgeSummary: null, adminDocuments: [],
-    documentSets: [], indexSettings: null };
+    documentSets: [], indexSettings: null, userAdmin: null, userPage: 0,
+    userFilters: { query: '', role: 'all', status: 'all' },
+    registrationPolicy: { restrictOpenSignup: false, invitationValid: false, invitationEmail: null } };
+
+const inviteToken = new URLSearchParams(location.search).get('invite') || '';
 
 function iconMarkup(name, className = 'ui-icon') {
     return `<svg class="${className}" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
@@ -68,7 +72,10 @@ const elements = {
     documentSetDialog: document.querySelector('#documentSetDialog'),
     documentSetForm: document.querySelector('#documentSetForm'),
     documentPickerList: document.querySelector('#documentPickerList'),
-    indexSettingsForm: document.querySelector('#indexSettingsForm')
+    indexSettingsForm: document.querySelector('#indexSettingsForm'),
+    userTableBody: document.querySelector('#userTableBody'),
+    inviteUsersDialog: document.querySelector('#inviteUsersDialog'),
+    inviteUsersForm: document.querySelector('#inviteUsersForm')
 };
 
 const defaultSettings = {
@@ -179,7 +186,32 @@ function setAuthMode(mode) {
     document.querySelectorAll('.auth-confirm-field').forEach(element => { element.hidden = !registering; });
     elements.authConfirmPassword.required = registering;
     elements.authPassword.autocomplete = registering ? 'new-password' : 'current-password';
+    elements.authEmail.readOnly = registering && state.registrationPolicy.invitationValid;
+    if (registering && state.registrationPolicy.invitationValid) {
+        elements.authEmail.value = state.registrationPolicy.invitationEmail || '';
+    }
     elements.authError.hidden = true;
+}
+
+function applyRegistrationPolicy() {
+    const policy = state.registrationPolicy;
+    const switchRow = document.querySelector('.auth-switch');
+    switchRow.hidden = policy.restrictOpenSignup && !policy.invitationValid;
+    elements.authEmail.readOnly = Boolean(policy.invitationValid);
+    if (policy.invitationValid) {
+        setAuthMode('register');
+        elements.authEmail.value = policy.invitationEmail || '';
+        document.querySelector('#authSubtitle').textContent = '完成注册以加入 JadeBase 工作区';
+    } else if (policy.restrictOpenSignup) {
+        setAuthMode('login');
+    }
+}
+
+async function loadRegistrationPolicy() {
+    if (isStaticPreview) return;
+    const suffix = inviteToken ? `?inviteToken=${encodeURIComponent(inviteToken)}` : '';
+    state.registrationPolicy = await api(`/api/v1/auth/registration-policy${suffix}`, { skipAuthRedirect: true });
+    applyRegistrationPolicy();
 }
 
 function showAuthPage(message = '') {
@@ -210,7 +242,7 @@ async function loadCurrentModel() {
     setModelStatus(state.currentModel.configured ? state.currentModel.modelId : '本地演示');
 }
 
-const adminPages = new Set(['language-models', 'existing-connectors', 'add-connector', 'document-sets', 'index-settings']);
+const adminPages = new Set(['language-models', 'existing-connectors', 'add-connector', 'document-sets', 'index-settings', 'users']);
 
 function adminPageFromHash() {
     const page = location.hash.startsWith('#admin/') ? location.hash.slice(7) : '';
@@ -229,6 +261,7 @@ async function showAdminPage(page, updateLocation = true) {
     if (target === 'existing-connectors' || target === 'add-connector') await loadFeishuConnector();
     if (target === 'document-sets') await loadDocumentKnowledge();
     if (target === 'index-settings') await loadIndexAdmin();
+    if (target === 'users') await loadUserAdmin();
 }
 
 async function openAdmin(updateLocation = true, requestedPage = adminPageFromHash()) {
@@ -835,6 +868,101 @@ function renderIndexAdmin() {
     document.querySelector('#reindexRequiredBadge').hidden = !settings.reindexRequired;
 }
 
+async function loadUserAdmin() {
+    if (isStaticPreview) {
+        state.userAdmin = {
+            users: [
+                { id: 'preview-owner', email: 'owner@jadebase.local', displayName: 'JadeBase 所有者', role: 'owner', status: 'active', updatedAt: new Date().toISOString(), lastLoginAt: new Date().toISOString() },
+                { id: 'preview-member', email: 'member@jadebase.local', displayName: '产品成员', role: 'member', status: 'active', updatedAt: new Date(Date.now() - 86400000).toISOString(), lastLoginAt: null }
+            ], invitations: [{ id: 'preview-invite', email: 'new.member@jadebase.local', role: 'member', invitedBy: 'JadeBase 所有者', expiresAt: new Date(Date.now() + 6 * 86400000).toISOString(), createdAt: new Date().toISOString() }],
+            totalElements: 2, totalPages: 1, page: 0, size: 20, activeUsers: 2, pendingInvites: 1, restrictOpenSignup: true
+        };
+        renderUserAdmin();
+        return;
+    }
+    const params = new URLSearchParams({ ...state.userFilters, page: String(state.userPage), size: '20' });
+    state.userAdmin = await api(`/api/v1/admin/users?${params}`);
+    renderUserAdmin();
+}
+
+function formatUserTime(value) {
+    if (!value) return '从未登录';
+    return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).format(new Date(value));
+}
+
+function roleLabel(role) {
+    return role === 'owner' ? '所有者' : '成员';
+}
+
+function renderUserAdmin() {
+    const result = state.userAdmin || { users: [], invitations: [] };
+    document.querySelector('#activeUserCount').textContent = result.activeUsers || 0;
+    document.querySelector('#pendingInviteCount').textContent = result.pendingInvites || 0;
+    document.querySelector('#restrictSignupToggle').checked = Boolean(result.restrictOpenSignup);
+    document.querySelector('#userPaginationSummary').textContent = result.totalElements
+        ? `显示 ${result.page * result.size + 1}-${Math.min((result.page + 1) * result.size, result.totalElements)}，共 ${result.totalElements} 个用户`
+        : '0 个用户';
+    document.querySelector('#userPageNumber').textContent = String((result.page || 0) + 1);
+    document.querySelector('#previousUserPageButton').disabled = !result.page;
+    document.querySelector('#nextUserPageButton').disabled = (result.page || 0) + 1 >= (result.totalPages || 1);
+    elements.userTableBody.innerHTML = result.users.length ? result.users.map(user => {
+        const label = user.displayName || user.email;
+        const secondary = user.displayName ? user.email : (user.lastLoginAt ? `最近登录 ${formatUserTime(user.lastLoginAt)}` : '尚未登录');
+        const currentUser = user.id === state.currentUser?.id;
+        const nextStatus = user.status === 'active' ? 'suspended' : 'active';
+        return `<tr data-user-id="${user.id}">
+            <td><div class="user-identity-cell"><span class="user-avatar">${iconMarkup('user')}</span><span class="user-identity-copy"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(secondary)}</small></span></div></td>
+            <td><select class="user-role-select" data-user-role="${user.id}" aria-label="设置 ${escapeHtml(label)} 的账号类型" ${currentUser ? 'disabled' : ''}><option value="owner" ${user.role === 'owner' ? 'selected' : ''}>所有者</option><option value="member" ${user.role === 'member' ? 'selected' : ''}>成员</option></select></td>
+            <td><span class="user-status-badge ${user.status === 'suspended' ? 'suspended' : ''}">${user.status === 'active' ? '有效' : '已停用'}</span></td>
+            <td class="user-updated-cell">${formatUserTime(user.updatedAt)}</td>
+            <td><button class="icon-button user-row-action ${user.status === 'active' ? 'danger' : ''}" data-user-status="${user.id}" data-next-status="${nextStatus}" type="button" ${currentUser ? 'disabled' : ''} title="${user.status === 'active' ? '停用用户' : '恢复用户'}" aria-label="${user.status === 'active' ? '停用' : '恢复'} ${escapeHtml(label)}">${iconMarkup('more')}</button></td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="5" class="admin-empty-state">没有找到匹配用户</td></tr>';
+
+    const invitationSection = document.querySelector('#pendingInvitationsSection');
+    invitationSection.hidden = !result.invitations.length;
+    document.querySelector('#pendingInvitationList').innerHTML = result.invitations.map(invitation => `
+        <article class="pending-invitation-row">
+            <span><strong>${escapeHtml(invitation.email)}</strong><small>由 ${escapeHtml(invitation.invitedBy)} 邀请</small></span>
+            <em>${roleLabel(invitation.role)}</em>
+            <em>${formatUserTime(invitation.expiresAt)} 到期</em>
+            <button class="secondary-button" data-invitation-revoke="${invitation.id}" type="button">撤销</button>
+        </article>`).join('');
+}
+
+function openInviteUsersDialog() {
+    elements.inviteUsersForm.reset();
+    document.querySelector('#inviteLinkResult').hidden = true;
+    document.querySelector('#createInvitationButton').textContent = '创建邀请';
+    elements.inviteUsersDialog.showModal();
+    document.querySelector('#inviteEmailInput').focus();
+}
+
+function invitationUrl(token) {
+    if (isStaticPreview) return `https://jadebase.local/?invite=${encodeURIComponent(token)}`;
+    const url = new URL(location.href);
+    url.hash = '';
+    url.search = '';
+    url.searchParams.set('invite', token);
+    return url.toString();
+}
+
+function exportCurrentUsers() {
+    const users = state.userAdmin?.users || [];
+    if (!users.length) return showToast('当前没有可导出的用户');
+    const quote = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const rows = [['名称', '邮箱', '账号类型', '状态', '最近登录'], ...users.map(user => [
+        user.displayName, user.email, roleLabel(user.role), user.status === 'active' ? '有效' : '已停用',
+        user.lastLoginAt ? formatUserTime(user.lastLoginAt) : '从未登录'
+    ])];
+    const blob = new Blob([`\ufeff${rows.map(row => row.map(quote).join(',')).join('\n')}`], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `jadebase-users-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
 function appendMessage(role, text, sources = []) {
     elements.emptyState?.remove();
     elements.chatPanel.classList.remove('welcome-mode');
@@ -1336,6 +1464,137 @@ document.querySelector('#reindexAllButton').addEventListener('click', async even
     } catch (error) { showToast(error.message); }
     finally { event.currentTarget.disabled = false; }
 });
+document.querySelector('#inviteUsersButton').addEventListener('click', openInviteUsersDialog);
+document.querySelector('#closeInviteUsersDialogButton').addEventListener('click', () => elements.inviteUsersDialog.close());
+document.querySelector('#cancelInviteUsersButton').addEventListener('click', () => elements.inviteUsersDialog.close());
+document.querySelector('#refreshUsersButton').addEventListener('click', () => loadUserAdmin().catch(error => showToast(error.message)));
+document.querySelector('#exportUsersButton').addEventListener('click', exportCurrentUsers);
+document.querySelector('#userSearchInput').addEventListener('input', event => {
+    window.clearTimeout(event.currentTarget.searchTimer);
+    event.currentTarget.searchTimer = window.setTimeout(() => {
+        state.userFilters.query = event.currentTarget.value.trim();
+        state.userPage = 0;
+        loadUserAdmin().catch(error => showToast(error.message));
+    }, 250);
+});
+document.querySelector('#userRoleFilter').addEventListener('change', event => {
+    state.userFilters.role = event.currentTarget.value;
+    state.userPage = 0;
+    loadUserAdmin().catch(error => showToast(error.message));
+});
+document.querySelector('#userStatusFilter').addEventListener('change', event => {
+    state.userFilters.status = event.currentTarget.value;
+    state.userPage = 0;
+    loadUserAdmin().catch(error => showToast(error.message));
+});
+document.querySelector('#previousUserPageButton').addEventListener('click', () => {
+    if (!state.userPage) return;
+    state.userPage -= 1;
+    loadUserAdmin().catch(error => showToast(error.message));
+});
+document.querySelector('#nextUserPageButton').addEventListener('click', () => {
+    if (state.userPage + 1 >= (state.userAdmin?.totalPages || 1)) return;
+    state.userPage += 1;
+    loadUserAdmin().catch(error => showToast(error.message));
+});
+document.querySelector('#restrictSignupToggle').addEventListener('change', async event => {
+    event.currentTarget.disabled = true;
+    try {
+        if (isStaticPreview) state.userAdmin.restrictOpenSignup = event.currentTarget.checked;
+        else await api('/api/v1/admin/users/registration-policy', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ restrictOpenSignup: event.currentTarget.checked })
+        });
+        showToast(event.currentTarget.checked ? '已限制开放注册' : '已允许开放注册');
+    } catch (error) {
+        event.currentTarget.checked = !event.currentTarget.checked;
+        showToast(error.message);
+    } finally { event.currentTarget.disabled = false; }
+});
+elements.userTableBody.addEventListener('change', async event => {
+    const select = event.target.closest('[data-user-role]');
+    if (!select) return;
+    select.disabled = true;
+    try {
+        if (isStaticPreview) {
+            const user = state.userAdmin.users.find(item => item.id === select.dataset.userRole);
+            if (user) user.role = select.value;
+        } else await api(`/api/v1/admin/users/${select.dataset.userRole}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: select.value })
+        });
+        await loadUserAdmin();
+        showToast('用户账号类型已更新');
+    } catch (error) {
+        await loadUserAdmin();
+        showToast(error.message);
+    }
+});
+elements.userTableBody.addEventListener('click', async event => {
+    const button = event.target.closest('[data-user-status]');
+    if (!button) return;
+    const user = state.userAdmin?.users.find(item => item.id === button.dataset.userStatus);
+    const suspending = button.dataset.nextStatus === 'suspended';
+    if (suspending && !window.confirm(`确认停用「${user?.displayName || user?.email || '该用户'}」吗？其现有登录会话将立即失效。`)) return;
+    button.disabled = true;
+    try {
+        if (isStaticPreview && user) user.status = button.dataset.nextStatus;
+        else await api(`/api/v1/admin/users/${button.dataset.userStatus}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: button.dataset.nextStatus })
+        });
+        await loadUserAdmin();
+        showToast(suspending ? '用户已停用' : '用户已恢复');
+    } catch (error) { showToast(error.message); button.disabled = false; }
+});
+elements.inviteUsersForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = document.querySelector('#createInvitationButton');
+    button.disabled = true;
+    try {
+        const email = document.querySelector('#inviteEmailInput').value.trim();
+        const role = document.querySelector('#inviteRoleSelect').value;
+        const result = isStaticPreview ? {
+            invitation: { id: `preview-${Date.now()}`, email, role, invitedBy: userLabel(), expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(), createdAt: new Date().toISOString() },
+            token: `preview-${Date.now()}`
+        } : await api('/api/v1/admin/users/invitations', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, role })
+        });
+        if (isStaticPreview) {
+            state.userAdmin.invitations.unshift(result.invitation);
+            state.userAdmin.pendingInvites = state.userAdmin.invitations.length;
+            renderUserAdmin();
+        } else await loadUserAdmin();
+        document.querySelector('#inviteResultEmail').textContent = result.invitation.email;
+        document.querySelector('#inviteLinkOutput').value = invitationUrl(result.token);
+        document.querySelector('#inviteLinkResult').hidden = false;
+        button.textContent = '重新创建邀请';
+        showToast('邀请已创建');
+    } catch (error) { showToast(error.message); }
+    finally { button.disabled = false; }
+});
+document.querySelector('#copyInviteLinkButton').addEventListener('click', async () => {
+    const input = document.querySelector('#inviteLinkOutput');
+    try { await navigator.clipboard.writeText(input.value); }
+    catch { input.select(); document.execCommand('copy'); }
+    showToast('邀请链接已复制');
+});
+document.querySelector('#pendingInvitationList').addEventListener('click', async event => {
+    const button = event.target.closest('[data-invitation-revoke]');
+    if (!button || !window.confirm('确认撤销这个邀请吗？')) return;
+    button.disabled = true;
+    try {
+        if (isStaticPreview) {
+            state.userAdmin.invitations = state.userAdmin.invitations.filter(item => item.id !== button.dataset.invitationRevoke);
+            state.userAdmin.pendingInvites = state.userAdmin.invitations.length;
+            renderUserAdmin();
+        } else {
+            await api(`/api/v1/admin/users/invitations/${button.dataset.invitationRevoke}`, { method: 'DELETE' });
+            await loadUserAdmin();
+        }
+        showToast('邀请已撤销');
+    } catch (error) { showToast(error.message); button.disabled = false; }
+});
 document.querySelector('#closeModelProviderButton').addEventListener('click', () => elements.modelProviderDialog.close());
 document.querySelector('#cancelModelProviderButton').addEventListener('click', () => elements.modelProviderDialog.close());
 document.querySelector('#toggleModelProviderKey').addEventListener('click', () => {
@@ -1830,7 +2089,7 @@ elements.createForm.addEventListener('submit', async event => {
 
 applySettings();
 if (isStaticPreview) {
-    state.currentUser = { email: 'preview@jadebase.local', displayName: '', role: 'owner' };
+    state.currentUser = { id: 'preview-owner', email: 'preview@jadebase.local', displayName: '', role: 'owner', status: 'active' };
     showWorkspace();
     state.knowledgeBases = [
         { id: 'preview-product', name: '产品知识库', description: '产品资料与使用说明' },
@@ -1855,7 +2114,11 @@ async function bootstrap() {
         renderCurrentUser();
         if (location.hash.startsWith('#admin/')) await openAdmin(false);
     } catch (error) {
-        if (error.status === 401) showAuthPage();
+        if (error.status === 401) {
+            try { await loadRegistrationPolicy(); } catch (_) { /* login remains available */ }
+            showAuthPage();
+            applyRegistrationPolicy();
+        }
         else showAuthPage(`无法连接 JadeBase：${error.message}`);
     }
 }
@@ -1881,7 +2144,8 @@ elements.authForm.addEventListener('submit', async event => {
         state.currentUser = await api(`/api/v1/auth/${registering ? 'register' : 'login'}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: elements.authEmail.value, password: elements.authPassword.value }),
+            body: JSON.stringify({ email: elements.authEmail.value, password: elements.authPassword.value,
+                inviteToken: registering ? inviteToken || null : null }),
             skipAuthRedirect: true
         });
         elements.authForm.reset();
@@ -1889,6 +2153,7 @@ elements.authForm.addEventListener('submit', async event => {
         await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories(), loadCurrentModel()]);
         resetConversation();
         renderCurrentUser();
+        if (registering && inviteToken) history.replaceState(null, '', location.pathname);
     } catch (error) {
         elements.authError.textContent = error.message;
         elements.authError.hidden = false;

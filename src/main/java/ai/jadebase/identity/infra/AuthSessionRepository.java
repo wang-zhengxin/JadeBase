@@ -14,5 +14,6 @@ public interface AuthSessionRepository extends JpaRepository<AuthSession, UUID> 
             + "where session.tokenHash = :tokenHash and session.expiresAt > :now")
     Optional<AuthSession> findActive(@Param("tokenHash") String tokenHash, @Param("now") Instant now);
     void deleteByTokenHash(String tokenHash);
+    long deleteByUser_Id(UUID userId);
     long deleteByExpiresAtBefore(Instant now);
 }
