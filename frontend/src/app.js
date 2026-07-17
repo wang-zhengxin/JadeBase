@@ -2,7 +2,8 @@ const isStaticPreview = window.location.protocol === 'file:';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const state = { currentUser: null, knowledgeBases: [], activeId: null, documents: [], conversationId: null,
     conversations: [], memories: [], documentEvents: null, documentEventKnowledgeBaseId: null,
-    feishuConnections: [], feishuSources: [], feishuTasks: [] };
+    feishuConnections: [], feishuSources: [], feishuTasks: [], modelCatalog: [], modelProviders: [],
+    currentModel: null };
 
 function iconMarkup(name, className = 'ui-icon') {
     return `<svg class="${className}" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
@@ -24,6 +25,7 @@ const elements = {
     authError: document.querySelector('#authError'),
     authSubmit: document.querySelector('#authSubmit'),
     appShell: document.querySelector('#appShell'),
+    adminShell: document.querySelector('#adminShell'),
     chatPanel: document.querySelector('.chat-panel'),
     settingsPage: document.querySelector('#settingsPage'),
     knowledgeList: document.querySelector('#knowledgeList'),
@@ -51,7 +53,13 @@ const elements = {
     feishuSourceDialog: document.querySelector('#feishuSourceDialog'),
     feishuSourceForm: document.querySelector('#feishuSourceForm'),
     feishuSourceList: document.querySelector('#feishuSourceList'),
-    feishuTaskList: document.querySelector('#feishuTaskList')
+    feishuTaskList: document.querySelector('#feishuTaskList'),
+    providerCatalogGrid: document.querySelector('#providerCatalogGrid'),
+    configuredProviderList: document.querySelector('#configuredProviderList'),
+    defaultModelSelect: document.querySelector('#defaultModelSelect'),
+    modelProviderDialog: document.querySelector('#modelProviderDialog'),
+    modelProviderForm: document.querySelector('#modelProviderForm'),
+    modelOptionList: document.querySelector('#modelOptionList')
 };
 
 const defaultSettings = {
@@ -141,6 +149,8 @@ function renderCurrentUser() {
     document.querySelector('#accountEmail').textContent = state.currentUser.email;
     document.querySelector('#settingsAccountEmail').textContent = state.currentUser.email;
     document.querySelector('#settingsAccountRole').textContent = state.currentUser.role === 'owner' ? '所有者' : '成员';
+    document.querySelector('#adminUserName').textContent = userLabel();
+    document.querySelector('#adminPanelButton').hidden = state.currentUser.role !== 'owner';
     document.querySelector('#profileNameInput').value = state.currentUser.displayName || appSettings.profileName;
     document.querySelectorAll('[data-display-name-prompt]').forEach(prompt => {
         prompt.hidden = Boolean(state.currentUser.displayName);
@@ -168,6 +178,7 @@ function showAuthPage(message = '') {
     state.documentEvents = null;
     state.currentUser = null;
     elements.appShell.hidden = true;
+    elements.adminShell.hidden = true;
     elements.authPage.hidden = false;
     elements.authError.textContent = message;
     elements.authError.hidden = !message;
@@ -178,9 +189,38 @@ function showAuthPage(message = '') {
 
 function showWorkspace() {
     elements.authPage.hidden = true;
+    elements.adminShell.hidden = true;
     elements.appShell.hidden = false;
     elements.chatPanel.classList.add('welcome-mode');
     renderCurrentUser();
+}
+
+async function loadCurrentModel() {
+    if (isStaticPreview) return;
+    state.currentModel = await api('/api/v1/models/current');
+    setModelStatus(state.currentModel.configured ? state.currentModel.modelId : '本地演示');
+}
+
+async function openAdmin(updateLocation = true) {
+    closeAccountMenu();
+    if (state.currentUser?.role !== 'owner') {
+        showToast('只有工作区所有者可以进入管理后台');
+        return;
+    }
+    elements.appShell.hidden = true;
+    elements.adminShell.hidden = false;
+    elements.adminShell.classList.remove('sidebar-open');
+    document.querySelector('#adminContent').scrollTop = 0;
+    if (updateLocation && !isStaticPreview) history.replaceState(null, '', '#admin/language-models');
+    try { await loadModelAdmin(); }
+    catch (error) { showToast(`模型配置加载失败：${error.message}`); }
+}
+
+function closeAdmin() {
+    elements.adminShell.hidden = true;
+    elements.adminShell.classList.remove('sidebar-open');
+    elements.appShell.hidden = false;
+    if (!isStaticPreview) history.replaceState(null, '', `${location.pathname}${location.search}`);
 }
 
 function openSettings() {
@@ -637,6 +677,174 @@ function appendMessage(role, text, sources = []) {
     if (appSettings.autoScroll) elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
+let modelDialogModels = [];
+
+function modelPreset(type) {
+    return state.modelCatalog.find(item => item.type === type) || {
+        type, name: type, description: '', defaultBaseUrl: '', mark: 'AI', apiKeyRequired: true,
+        local: false, suggestedModels: []
+    };
+}
+
+async function loadModelAdmin() {
+    if (isStaticPreview) {
+        state.modelCatalog = previewModelCatalog();
+        state.modelProviders = [];
+        state.currentModel = { modelId: '本地演示', providerName: '未配置', configured: false, source: 'fallback' };
+    } else {
+        [state.modelCatalog, state.modelProviders, state.currentModel] = await Promise.all([
+            api('/api/v1/admin/model-providers/catalog'),
+            api('/api/v1/admin/model-providers'),
+            api('/api/v1/models/current')
+        ]);
+    }
+    renderModelAdmin();
+}
+
+function previewModelCatalog() {
+    return [
+        ['DEEPSEEK', 'DeepSeek', '深度求索', 'https://api.deepseek.com', 'DS'],
+        ['DASHSCOPE', '阿里云百炼', '通义千问 Qwen', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'QW'],
+        ['ZHIPU', '智谱 AI', 'GLM', 'https://open.bigmodel.cn/api/paas/v4', 'GLM'],
+        ['MOONSHOT', 'Kimi', '月之暗面', 'https://api.moonshot.cn/v1', 'K'],
+        ['VOLCENGINE', '火山方舟', '豆包与第三方模型', 'https://ark.cn-beijing.volces.com/api/v3', 'DB'],
+        ['QIANFAN', '百度千帆', '文心与第三方模型', 'https://qianfan.baidubce.com/v2', 'QF'],
+        ['SILICONFLOW', '硅基流动', '国产模型聚合平台', 'https://api.siliconflow.cn/v1', 'SF'],
+        ['OPENAI', 'OpenAI', 'GPT 系列', 'https://api.openai.com/v1', 'AI'],
+        ['OPENAI_COMPATIBLE', 'OpenAI 通用接口', '任意兼容服务', 'https://your-provider.example/v1', '<>'],
+        ['OLLAMA', 'Ollama', '本地模型', 'http://host.docker.internal:11434/v1', 'OL'],
+        ['VLLM', 'vLLM', 'OpenAI 兼容推理服务', 'http://host.docker.internal:8000/v1', 'VL'],
+        ['LM_STUDIO', 'LM Studio', '桌面本地模型', 'http://host.docker.internal:1234/v1', 'LM'],
+        ['LOCALAI', 'LocalAI', '自托管兼容服务', 'http://host.docker.internal:8080/v1', 'LA']
+    ].map(([type, name, description, defaultBaseUrl, mark]) => ({ type, name, description, defaultBaseUrl, mark,
+        apiKeyRequired: !['OPENAI_COMPATIBLE', 'OLLAMA', 'VLLM', 'LM_STUDIO', 'LOCALAI'].includes(type),
+        local: ['OLLAMA', 'VLLM', 'LM_STUDIO', 'LOCALAI'].includes(type), suggestedModels: [] }));
+}
+
+function renderModelAdmin() {
+    elements.providerCatalogGrid.innerHTML = state.modelCatalog.map(preset => `
+        <button class="provider-catalog-item" data-provider-type="${preset.type}" type="button">
+            <span class="provider-mark">${escapeHtml(preset.mark)}</span>
+            <span class="provider-catalog-copy"><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.description)}</small></span>
+            <span class="provider-connect-label">连接</span>
+        </button>`).join('');
+
+    if (!state.modelProviders.length) {
+        elements.configuredProviderList.innerHTML = '<p class="admin-empty-state">尚未连接模型供应商，当前继续使用环境变量或本地演示模式。</p>';
+    } else {
+        elements.configuredProviderList.innerHTML = state.modelProviders.map(provider => {
+            const preset = modelPreset(provider.providerType);
+            const isDefault = provider.models.some(model => model.defaultModel);
+            return `<article class="configured-provider">
+                <span class="provider-mark">${escapeHtml(preset.mark)}</span>
+                <span class="configured-provider-copy"><div><strong>${escapeHtml(provider.displayName)}</strong>${isDefault ? '<span class="default-provider-badge">默认</span>' : ''}</div><small>${provider.models.length} 个模型 · ${escapeHtml(provider.baseUrl)}</small></span>
+                <span class="provider-status ${provider.status === 'ERROR' ? 'error' : ''}">${escapeHtml(provider.statusMessage || '等待测试')}</span>
+                <button class="icon-button" data-configure-provider="${provider.id}" type="button" title="配置供应商" aria-label="配置 ${escapeHtml(provider.displayName)}">${iconMarkup('settings')}</button>
+            </article>`;
+        }).join('');
+    }
+
+    const options = [];
+    state.modelProviders.forEach(provider => provider.models.filter(model => model.enabled).forEach(model => {
+        options.push({ value: `${provider.id}|${encodeURIComponent(model.modelId)}`,
+            label: `${model.displayName} · ${provider.displayName}`, selected: model.defaultModel });
+    }));
+    if (!options.length) {
+        elements.defaultModelSelect.innerHTML = `<option value="">${escapeHtml(state.currentModel?.configured ? `${state.currentModel.modelId} · 环境变量` : '本地演示')}</option>`;
+        elements.defaultModelSelect.disabled = true;
+    } else {
+        elements.defaultModelSelect.disabled = false;
+        elements.defaultModelSelect.innerHTML = options.map(option => `<option value="${option.value}" ${option.selected ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
+    }
+    if (state.currentModel?.configured) setModelStatus(state.currentModel.modelId);
+}
+
+function openModelProviderDialog(type, providerId = '') {
+    const provider = providerId ? state.modelProviders.find(item => item.id === providerId) : null;
+    const preset = modelPreset(provider?.providerType || type);
+    document.querySelector('#modelProviderId').value = provider?.id || '';
+    document.querySelector('#modelProviderType').value = preset.type;
+    document.querySelector('#modelProviderMark').textContent = preset.mark;
+    document.querySelector('#modelProviderDialogTitle').textContent = `配置 ${provider?.displayName || preset.name}`;
+    document.querySelector('#modelProviderDialogSubtitle').textContent = preset.description || '连接模型服务并选择工作区可用模型。';
+    document.querySelector('#modelProviderBaseUrl').value = provider?.baseUrl || preset.defaultBaseUrl;
+    const apiKeyInput = document.querySelector('#modelProviderApiKey');
+    apiKeyInput.type = 'password';
+    apiKeyInput.value = '';
+    apiKeyInput.required = preset.apiKeyRequired && !provider?.apiKeyConfigured;
+    document.querySelector('#modelProviderKeyOptional').textContent = preset.apiKeyRequired
+        ? (provider?.apiKeyConfigured ? '（已保存，留空保留）' : '') : '（可选）';
+    document.querySelector('#modelProviderDisplayName').value = provider?.displayName || '';
+    document.querySelector('#deleteModelProviderButton').hidden = !provider;
+    document.querySelector('#modelProviderResult').hidden = true;
+    document.querySelector('#modelProviderResult').classList.remove('error');
+    document.querySelector('#manualModelId').value = '';
+    modelDialogModels = provider
+        ? provider.models.map(model => ({ id: model.modelId, selected: model.enabled }))
+        : (preset.suggestedModels || []).map(id => ({ id, selected: true }));
+    renderModelOptions();
+    elements.modelProviderDialog.showModal();
+    document.querySelector('#modelProviderBaseUrl').focus();
+}
+
+function captureModelSelections() {
+    document.querySelectorAll('[data-model-option]').forEach(input => {
+        const model = modelDialogModels.find(item => item.id === input.dataset.modelOption);
+        if (model) model.selected = input.checked;
+    });
+}
+
+function renderModelOptions() {
+    if (!modelDialogModels.length) {
+        elements.modelOptionList.innerHTML = '<p>点击“发现模型”读取可用模型，或手动添加模型 ID。</p>';
+        return;
+    }
+    elements.modelOptionList.innerHTML = modelDialogModels.map(model => `
+        <label class="model-option"><input type="checkbox" data-model-option="${escapeHtml(model.id)}" ${model.selected ? 'checked' : ''}><span>${escapeHtml(model.id)}</span></label>`).join('');
+}
+
+function modelProviderPayload() {
+    captureModelSelections();
+    return {
+        providerType: document.querySelector('#modelProviderType').value,
+        displayName: document.querySelector('#modelProviderDisplayName').value.trim(),
+        baseUrl: document.querySelector('#modelProviderBaseUrl').value.trim(),
+        apiKey: document.querySelector('#modelProviderApiKey').value.trim(),
+        modelIds: modelDialogModels.filter(model => model.selected).map(model => model.id)
+    };
+}
+
+function showModelProviderResult(message, error = false) {
+    const result = document.querySelector('#modelProviderResult');
+    result.textContent = message;
+    result.hidden = false;
+    result.classList.toggle('error', error);
+}
+
+async function discoverProviderModels() {
+    const payload = modelProviderPayload();
+    const providerId = document.querySelector('#modelProviderId').value;
+    const path = providerId
+        ? `/api/v1/admin/model-providers/${providerId}/discover`
+        : '/api/v1/admin/model-providers/discover';
+    const result = await api(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerType: payload.providerType, baseUrl: payload.baseUrl, apiKey: payload.apiKey })
+    });
+    captureModelSelections();
+    const selected = new Set(modelDialogModels.filter(model => model.selected).map(model => model.id));
+    modelDialogModels = [...new Set([...modelDialogModels.map(model => model.id), ...result.models])]
+        .sort((a, b) => a.localeCompare(b))
+        .map(id => ({ id, selected: selected.has(id) || result.models.includes(id) }));
+    renderModelOptions();
+    showModelProviderResult(result.message);
+}
+
+async function refreshModelConfiguration() {
+    await Promise.all([loadModelAdmin(), loadCurrentModel()]);
+    renderModelAdmin();
+}
+
 elements.knowledgeList.addEventListener('click', async event => {
     const button = event.target.closest('[data-id]');
     if (!button) return;
@@ -667,7 +875,7 @@ elements.chatForm.addEventListener('submit', async event => {
         });
         state.conversationId = result.conversationId;
         appendMessage('assistant', result.answer, result.sources);
-        setModelStatus(result.mode === 'model' ? '模型已连接' : '本地演示');
+        setModelStatus(result.mode === 'model' ? result.model : '本地演示');
         if (appSettings.updateMemories && /^记住[：:]/.test(question)) await loadMemories();
     } catch (error) {
         showToast(error.message);
@@ -764,7 +972,133 @@ document.querySelector('#sidebarToggle').addEventListener('click', event => {
 document.querySelector('#openSettingsButton').addEventListener('click', openSettings);
 document.querySelector('#accountMenuButton').addEventListener('click', toggleAccountMenu);
 document.querySelector('#mobileAccountButton').addEventListener('click', toggleAccountMenu);
-document.querySelector('#adminPanelButton').addEventListener('click', () => showToast('管理后台将在企业权限阶段开放'));
+document.querySelector('#adminPanelButton').addEventListener('click', () => openAdmin());
+document.querySelector('#exitAdminButton').addEventListener('click', closeAdmin);
+document.querySelector('#openAdminSidebarButton').addEventListener('click', () => elements.adminShell.classList.add('sidebar-open'));
+document.querySelector('#closeAdminSidebarButton').addEventListener('click', () => elements.adminShell.classList.remove('sidebar-open'));
+document.querySelectorAll('.admin-nav-item.planned').forEach(button => {
+    button.addEventListener('click', () => showToast(`${button.dataset.adminLabel}将在后续管理阶段开放`));
+});
+document.querySelector('#adminMenuSearch').addEventListener('input', event => {
+    const keyword = event.target.value.trim().toLowerCase();
+    document.querySelectorAll('.admin-nav-item').forEach(button => {
+        button.hidden = Boolean(keyword) && !button.textContent.toLowerCase().includes(keyword);
+    });
+    document.querySelectorAll('[data-admin-group]').forEach(group => {
+        group.hidden = ![...group.querySelectorAll('.admin-nav-item')].some(button => !button.hidden);
+    });
+});
+document.querySelector('#refreshModelProvidersButton').addEventListener('click', () => {
+    refreshModelConfiguration().catch(error => showToast(error.message));
+});
+elements.providerCatalogGrid.addEventListener('click', event => {
+    const button = event.target.closest('[data-provider-type]');
+    if (button) openModelProviderDialog(button.dataset.providerType);
+});
+elements.configuredProviderList.addEventListener('click', event => {
+    const button = event.target.closest('[data-configure-provider]');
+    if (button) {
+        const provider = state.modelProviders.find(item => item.id === button.dataset.configureProvider);
+        if (provider) openModelProviderDialog(provider.providerType, provider.id);
+    }
+});
+elements.defaultModelSelect.addEventListener('change', async event => {
+    if (!event.target.value) return;
+    const [providerId, encodedModelId] = event.target.value.split('|');
+    event.target.disabled = true;
+    try {
+        state.currentModel = await api('/api/v1/admin/model-providers/default', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ providerId, modelId: decodeURIComponent(encodedModelId) })
+        });
+        await refreshModelConfiguration();
+        showToast(`默认模型已切换为 ${state.currentModel.modelId}`);
+    } catch (error) { showToast(error.message); }
+    finally { event.target.disabled = false; }
+});
+document.querySelector('#closeModelProviderButton').addEventListener('click', () => elements.modelProviderDialog.close());
+document.querySelector('#cancelModelProviderButton').addEventListener('click', () => elements.modelProviderDialog.close());
+document.querySelector('#toggleModelProviderKey').addEventListener('click', () => {
+    const input = document.querySelector('#modelProviderApiKey');
+    input.type = input.type === 'password' ? 'text' : 'password';
+});
+document.querySelector('#addManualModelButton').addEventListener('click', () => {
+    const input = document.querySelector('#manualModelId');
+    const id = input.value.trim();
+    if (!id) return;
+    captureModelSelections();
+    const existing = modelDialogModels.find(model => model.id === id);
+    if (existing) existing.selected = true;
+    else modelDialogModels.push({ id, selected: true });
+    modelDialogModels.sort((a, b) => a.id.localeCompare(b.id));
+    input.value = '';
+    renderModelOptions();
+});
+document.querySelector('#selectAllModelsButton').addEventListener('click', () => {
+    captureModelSelections();
+    const shouldSelect = modelDialogModels.some(model => !model.selected);
+    modelDialogModels.forEach(model => { model.selected = shouldSelect; });
+    renderModelOptions();
+});
+document.querySelector('#discoverModelsButton').addEventListener('click', async event => {
+    event.currentTarget.disabled = true;
+    event.currentTarget.classList.add('is-spinning');
+    try { await discoverProviderModels(); }
+    catch (error) { showModelProviderResult(error.message, true); }
+    finally { event.currentTarget.disabled = false; event.currentTarget.classList.remove('is-spinning'); }
+});
+document.querySelector('#testModelProviderButton').addEventListener('click', async event => {
+    const payload = modelProviderPayload();
+    const firstModel = payload.modelIds[0];
+    if (!firstModel) {
+        showModelProviderResult('请先选择或添加一个模型', true);
+        return;
+    }
+    event.currentTarget.disabled = true;
+    try {
+        const result = await api('/api/v1/admin/model-providers/test', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ providerId: document.querySelector('#modelProviderId').value || null,
+                providerType: payload.providerType, baseUrl: payload.baseUrl,
+                apiKey: payload.apiKey, modelId: firstModel })
+        });
+        showModelProviderResult(result.message);
+    } catch (error) { showModelProviderResult(error.message, true); }
+    finally { event.currentTarget.disabled = false; }
+});
+elements.modelProviderForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const payload = modelProviderPayload();
+    if (!payload.modelIds.length) {
+        showModelProviderResult('请至少选择或添加一个模型', true);
+        return;
+    }
+    const providerId = document.querySelector('#modelProviderId').value;
+    const saveButton = document.querySelector('#saveModelProviderButton');
+    saveButton.disabled = true;
+    try {
+        await api(`/api/v1/admin/model-providers${providerId ? `/${providerId}` : ''}`, {
+            method: providerId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        elements.modelProviderDialog.close();
+        await refreshModelConfiguration();
+        showToast(providerId ? '模型供应商已更新' : '模型供应商已连接');
+    } catch (error) { showModelProviderResult(error.message, true); }
+    finally { saveButton.disabled = false; }
+});
+document.querySelector('#deleteModelProviderButton').addEventListener('click', async event => {
+    const providerId = document.querySelector('#modelProviderId').value;
+    if (!providerId || !window.confirm('确认删除这个模型供应商及其模型配置吗？')) return;
+    event.currentTarget.disabled = true;
+    try {
+        await api(`/api/v1/admin/model-providers/${providerId}`, { method: 'DELETE' });
+        elements.modelProviderDialog.close();
+        await refreshModelConfiguration();
+        showToast('模型供应商已删除');
+    } catch (error) { showModelProviderResult(error.message, true); }
+    finally { event.currentTarget.disabled = false; }
+});
 document.querySelector('#notificationsButton').addEventListener('click', async () => {
     closeAccountMenu();
     try {
@@ -805,7 +1139,10 @@ document.addEventListener('click', event => {
 });
 
 document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') closeAccountMenu();
+    if (event.key === 'Escape') {
+        closeAccountMenu();
+        elements.adminShell.classList.remove('sidebar-open');
+    }
 });
 
 document.querySelectorAll('[data-settings-target]').forEach(button => {
@@ -1180,6 +1517,7 @@ if (isStaticPreview) {
     renderDocuments();
     renderMemories();
     loadNotifications();
+    if (location.hash === '#admin/language-models') openAdmin(false);
 } else {
     bootstrap();
 }
@@ -1188,8 +1526,9 @@ async function bootstrap() {
     try {
         state.currentUser = await api('/api/v1/auth/me', { skipAuthRedirect: true });
         showWorkspace();
-        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories()]);
+        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories(), loadCurrentModel()]);
         renderCurrentUser();
+        if (location.hash === '#admin/language-models') await openAdmin(false);
     } catch (error) {
         if (error.status === 401) showAuthPage();
         else showAuthPage(`无法连接 JadeBase：${error.message}`);
@@ -1222,7 +1561,7 @@ elements.authForm.addEventListener('submit', async event => {
         });
         elements.authForm.reset();
         showWorkspace();
-        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories()]);
+        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories(), loadCurrentModel()]);
         resetConversation();
         renderCurrentUser();
     } catch (error) {

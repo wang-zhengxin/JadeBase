@@ -73,7 +73,7 @@ public class ChatService {
                 normalizedQuestion, answer, mode, sources.stream().map(source ->
                         new ConversationService.SourceSnapshot(source.documentId(), source.documentName(),
                                 source.chunkIndex(), source.snippet(), source.score())).toList());
-        return new ChatResult(savedConversationId, answer, mode, sources, retrieval.diagnostics());
+        return new ChatResult(savedConversationId, answer, mode, chatModel.modelName(), sources, retrieval.diagnostics());
     }
 
     private String snippet(String content) {
@@ -93,7 +93,7 @@ public class ChatService {
                 .toList();
     }
 
-    public record ChatResult(UUID conversationId, String answer, String mode, List<Source> sources,
+    public record ChatResult(UUID conversationId, String answer, String mode, String model, List<Source> sources,
                              HybridRetriever.RetrievalDiagnostics retrieval) { }
     public record Source(UUID documentId, String documentName, int chunkIndex, String snippet, double score) { }
 }

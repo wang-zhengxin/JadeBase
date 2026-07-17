@@ -1,5 +1,6 @@
 package ai.jadebase.rag.infra;
 
+import ai.jadebase.model.ModelRuntimeResolver;
 import ai.jadebase.rag.application.RetrievalProperties;
 import ai.jadebase.rag.domain.QueryRewriter;
 import io.micrometer.core.instrument.Counter;
@@ -15,14 +16,14 @@ import java.util.Map;
 @Component
 public class QueryRewriterRouter implements QueryRewriter {
 
-    private final ModelProperties model;
+    private final ModelRuntimeResolver models;
     private final RetrievalProperties retrieval;
     private final RestClient restClient;
     private final Counter fallbackCounter;
 
-    public QueryRewriterRouter(ModelProperties model, RetrievalProperties retrieval,
+    public QueryRewriterRouter(ModelRuntimeResolver models, RetrievalProperties retrieval,
                                RestClient.Builder builder, MeterRegistry meters) {
-        this.model = model;
+        this.models = models;
         this.retrieval = retrieval;
         this.restClient = builder.build();
         this.fallbackCounter = meters.counter("jadebase.query_rewrite.fallback");
@@ -30,7 +31,8 @@ public class QueryRewriterRouter implements QueryRewriter {
 
     @Override
     public String rewrite(String question, List<Turn> context) {
-        if (!retrieval.queryRewriteEnabled() || !model.hasChatModel() || context == null || context.isEmpty()) {
+        ModelRuntimeResolver.RuntimeModel model = models.current();
+        if (!retrieval.queryRewriteEnabled() || !model.configured() || context == null || context.isEmpty()) {
             return question;
         }
         try {
@@ -41,11 +43,13 @@ public class QueryRewriterRouter implements QueryRewriter {
                     "role", "assistant".equalsIgnoreCase(turn.role()) ? "assistant" : "user",
                     "content", turn.content())));
             messages.add(Map.of("role", "user", "content", question));
-            Map<String, Object> body = Map.of("model", model.chatModel(), "temperature", 0.0,
+            Map<String, Object> body = Map.of("model", model.modelId(), "temperature", 0.0,
                     "messages", messages);
             OpenAiCompatibleClient.ChatResponse response = restClient.post()
-                    .uri(normalize(model.baseUrl()) + "/v1/chat/completions")
-                    .header("Authorization", "Bearer " + model.apiKey())
+                    .uri(normalize(model.baseUrl()) + "/chat/completions")
+                    .headers(headers -> {
+                        if (model.apiKey() != null && !model.apiKey().isBlank()) headers.setBearerAuth(model.apiKey());
+                    })
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()

@@ -8,6 +8,8 @@ public interface ChatModelClient {
 
     boolean configured();
 
+    String modelName();
+
     record Preferences(String personalInstructions, List<String> memories) {
         public Preferences {
             personalInstructions = personalInstructions == null ? "" : personalInstructions.trim();

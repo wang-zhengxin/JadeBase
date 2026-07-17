@@ -1,5 +1,6 @@
 package ai.jadebase.rag.infra;
 
+import ai.jadebase.model.ModelRuntimeResolver;
 import ai.jadebase.rag.domain.ChatModelClient;
 import ai.jadebase.rag.domain.RetrievedChunk;
 import org.springframework.http.MediaType;
@@ -12,11 +13,11 @@ import java.util.Map;
 @Component
 public class OpenAiCompatibleClient implements ChatModelClient {
 
-    private final ModelProperties properties;
+    private final ModelRuntimeResolver models;
     private final RestClient restClient;
 
-    public OpenAiCompatibleClient(ModelProperties properties, RestClient.Builder builder) {
-        this.properties = properties;
+    public OpenAiCompatibleClient(ModelRuntimeResolver models, RestClient.Builder builder) {
+        this.models = models;
         this.restClient = builder.build();
     }
 
@@ -24,7 +25,8 @@ public class OpenAiCompatibleClient implements ChatModelClient {
     public String answer(String question, List<RetrievedChunk> context, String language,
                          Preferences preferences) {
         boolean english = "en".equalsIgnoreCase(language);
-        if (!configured()) return fallbackAnswer(context, english);
+        ModelRuntimeResolver.RuntimeModel model = models.current();
+        if (!model.configured()) return fallbackAnswer(context, english);
 
         StringBuilder sources = new StringBuilder();
         for (int i = 0; i < context.size(); i++) {
@@ -34,15 +36,17 @@ public class OpenAiCompatibleClient implements ChatModelClient {
                     .append(chunk.content()).append("\n\n");
         }
         Map<String, Object> body = Map.of(
-                "model", properties.chatModel(),
+                "model", model.modelId(),
                 "temperature", 0.2,
                 "messages", List.of(
                         Map.of("role", "system", "content", systemPrompt(english, preferences)),
                         Map.of("role", "user", "content", "问题：" + question + "\n\n可用资料：\n" + sources)));
 
         ChatResponse response = restClient.post()
-                .uri(normalize(properties.baseUrl()) + "/v1/chat/completions")
-                .header("Authorization", "Bearer " + properties.apiKey())
+                .uri(normalize(model.baseUrl()) + "/chat/completions")
+                .headers(headers -> {
+                    if (model.apiKey() != null && !model.apiKey().isBlank()) headers.setBearerAuth(model.apiKey());
+                })
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body)
                 .retrieve()
@@ -55,7 +59,12 @@ public class OpenAiCompatibleClient implements ChatModelClient {
 
     @Override
     public boolean configured() {
-        return properties.hasChatModel();
+        return models.current().configured();
+    }
+
+    @Override
+    public String modelName() {
+        return models.current().modelId();
     }
 
     private String fallbackAnswer(List<RetrievedChunk> context, boolean english) {
