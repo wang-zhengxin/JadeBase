@@ -24,10 +24,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
@@ -61,7 +64,8 @@ class LanguageModelAdminIntegrationTest {
             String model = request.contains("mock-reasoner") ? "mock-reasoner" : "mock-chat";
             lastModel.set(model);
             respond(exchange, 200, """
-                    {"id":"chatcmpl-test","choices":[{"message":{"role":"assistant","content":"mock-answer"}}]}
+                    {"id":"chatcmpl-test","choices":[{"message":{"role":"assistant","content":"mock-answer",
+                     "reasoning_content":"分析问题并核对知识库证据。"}}]}
                     """);
         });
         server.start();
@@ -140,12 +144,27 @@ class LanguageModelAdminIntegrationTest {
         mockMvc.perform(post("/api/v1/chat")
                         .cookie(member).contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"knowledgeBaseId":"%s","question":"测试默认模型"}
+                                {"knowledgeBaseId":"%s","question":"测试默认模型","thinkMode":true}
                                 """.formatted(knowledgeBaseId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answer").value("mock-answer"))
+                .andExpect(jsonPath("$.reasoning").value("分析问题并核对知识库证据。"))
+                .andExpect(jsonPath("$.thinkMode").value(true))
                 .andExpect(jsonPath("$.model").value("mock-reasoner"));
         assertThat(lastModel.get()).isEqualTo("mock-reasoner");
+
+        MvcResult stream = mockMvc.perform(post("/api/v1/chat/stream")
+                        .cookie(member).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"knowledgeBaseId":"%s","question":"流式思考测试","thinkMode":true}
+                                """.formatted(knowledgeBaseId)))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        mockMvc.perform(asyncDispatch(stream))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("event:thinking")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("event:result")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"reasoning\"")));
 
         mockMvc.perform(put("/api/v1/admin/model-providers/{id}", providerId)
                         .cookie(owner).contentType(MediaType.APPLICATION_JSON)

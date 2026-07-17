@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.UUID;
+import java.time.Duration;
 
 @Service
 public class ChatService {
@@ -39,11 +40,17 @@ public class ChatService {
     }
 
     public ChatResult ask(UUID knowledgeBaseId, String question) {
-        return ask(knowledgeBaseId, null, question, null, null);
+        return ask(knowledgeBaseId, null, question, null, null, false);
     }
 
     public ChatResult ask(UUID knowledgeBaseId, UUID conversationId, String question,
                           Integer topK, String language) {
+        return ask(knowledgeBaseId, conversationId, question, topK, language, false);
+    }
+
+    public ChatResult ask(UUID knowledgeBaseId, UUID conversationId, String question,
+                          Integer topK, String language, boolean thinkMode) {
+        long started = System.nanoTime();
         if (!knowledgeBases.existsById(knowledgeBaseId)) throw new EntityNotFoundException("知识库不存在");
         if (question == null || question.isBlank()) throw new IllegalArgumentException("问题不能为空");
         String normalizedQuestion = question.trim();
@@ -62,18 +69,31 @@ public class ChatService {
         HybridRetriever.RetrievalResult retrieval = retriever.retrieveWithDiagnostics(
                 knowledgeBaseId, retrievalQuery, resultLimit);
         List<RetrievedChunk> context = retrieval.chunks();
-        String answer = chatModel.answer(normalizedQuestion, context, responseLanguage,
-                new ChatModelClient.Preferences(settings.getPersonalInstructions(), memories));
+        ChatModelClient.Completion completion = chatModel.answer(normalizedQuestion, context, responseLanguage,
+                new ChatModelClient.Preferences(settings.getPersonalInstructions(), memories), thinkMode);
+        String answer = completion.answer();
         List<Source> sources = context.stream()
                 .map(item -> new Source(item.documentId(), item.documentName(), item.chunkIndex(),
                         snippet(item.content()), Math.round(item.score() * 1000) / 1000.0))
                 .toList();
         String mode = chatModel.configured() ? "model" : "local-demo";
+        String reasoning = thinkMode ? reasoningSummary(completion.reasoning(), retrieval) : null;
+        long thinkingDurationMs = thinkMode ? Duration.ofNanos(System.nanoTime() - started).toMillis() : 0;
         UUID savedConversationId = conversations.recordExchange(knowledgeBaseId, conversationId,
-                normalizedQuestion, answer, mode, sources.stream().map(source ->
+                normalizedQuestion, answer, mode, reasoning, thinkingDurationMs, thinkMode ? 1 : 0,
+                sources.stream().map(source ->
                         new ConversationService.SourceSnapshot(source.documentId(), source.documentName(),
                                 source.chunkIndex(), source.snippet(), source.score())).toList());
-        return new ChatResult(savedConversationId, answer, mode, chatModel.modelName(), sources, retrieval.diagnostics());
+        return new ChatResult(savedConversationId, answer, mode, chatModel.modelName(), sources,
+                retrieval.diagnostics(), reasoning, thinkingDurationMs, thinkMode ? 1 : 0, thinkMode);
+    }
+
+    private String reasoningSummary(String modelReasoning, HybridRetriever.RetrievalResult retrieval) {
+        if (modelReasoning != null && !modelReasoning.isBlank()) return modelReasoning;
+        HybridRetriever.RetrievalDiagnostics diagnostics = retrieval.diagnostics();
+        return "已分析问题并执行混合检索：向量召回 %d 个候选、关键词召回 %d 个候选，融合后选取 %d 个相关片段组织回答%s。"
+                .formatted(diagnostics.vectorCandidates(), diagnostics.keywordCandidates(), retrieval.chunks().size(),
+                        diagnostics.reranked() ? "，并完成重排" : "");
     }
 
     private String snippet(String content) {
@@ -94,6 +114,7 @@ public class ChatService {
     }
 
     public record ChatResult(UUID conversationId, String answer, String mode, String model, List<Source> sources,
-                             HybridRetriever.RetrievalDiagnostics retrieval) { }
+                             HybridRetriever.RetrievalDiagnostics retrieval, String reasoning,
+                             long thinkingDurationMs, int thinkingSteps, boolean thinkMode) { }
     public record Source(UUID documentId, String documentName, int chunkIndex, String snippet, double score) { }
 }
