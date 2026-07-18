@@ -5,6 +5,9 @@ import ai.jadebase.rag.infra.ModelProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityNotFoundException;
+import java.util.UUID;
+
 @Component
 public class ModelRuntimeResolver {
 
@@ -28,6 +31,18 @@ public class ModelRuntimeResolver {
                         provider.getBaseUrl(), cipher.decrypt(provider.getEncryptedApiKey()), model.getModelId(),
                         provider.getDisplayName(), true, "database")))
                 .orElseGet(this::environmentFallback);
+    }
+
+    @Transactional(readOnly = true)
+    public RuntimeModel resolve(UUID providerId, String modelId) {
+        if (providerId == null || modelId == null || modelId.isBlank()) return current();
+        LanguageModel model = models.findByProviderIdAndModelId(providerId, modelId)
+                .filter(LanguageModel::isEnabled)
+                .orElseThrow(() -> new EntityNotFoundException("Agent 配置的模型不存在或未启用"));
+        ModelProvider provider = providers.findById(model.getProviderId())
+                .orElseThrow(() -> new EntityNotFoundException("Agent 配置的模型供应商不存在"));
+        return new RuntimeModel(provider.getBaseUrl(), cipher.decrypt(provider.getEncryptedApiKey()),
+                model.getModelId(), provider.getDisplayName(), true, "agent");
     }
 
     private RuntimeModel environmentFallback() {

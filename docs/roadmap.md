@@ -31,7 +31,8 @@
 
 ## Phase 4 · Agent Workspace
 
-- [ ] [Agent 与工具注册中心](https://github.com/wang-zhengxin/JadeBase/issues/7)
+- [x] [Agent 注册中心、版本与运行审计](https://github.com/wang-zhengxin/JadeBase/issues/7)
+- [ ] [工具注册中心](https://github.com/wang-zhengxin/JadeBase/issues/7)
 - [ ] [MCP 工具接入](https://github.com/wang-zhengxin/JadeBase/issues/7)
 - [ ] [工作流编排和人工确认节点](https://github.com/wang-zhengxin/JadeBase/issues/8)
 - [ ] [Code Review Agent 旗舰工作流](https://github.com/wang-zhengxin/JadeBase/issues/9)

@@ -1,6 +1,8 @@
 package ai.jadebase.rag.application;
 
+import ai.jadebase.agent.AgentService;
 import ai.jadebase.conversation.domain.ConversationService;
+import ai.jadebase.identity.domain.JadeUser;
 import ai.jadebase.knowledge.infra.KnowledgeBaseRepository;
 import ai.jadebase.rag.domain.ChatModelClient;
 import ai.jadebase.rag.domain.RetrievedChunk;
@@ -25,11 +27,12 @@ public class ChatService {
     private final QueryRewriter queryRewriter;
     private final WorkspaceSettingsService workspaceSettings;
     private final WorkspaceMemoryService workspaceMemories;
+    private final AgentService agents;
 
     public ChatService(KnowledgeBaseRepository knowledgeBases, HybridRetriever retriever,
                        ChatModelClient chatModel, ConversationService conversations,
                        QueryRewriter queryRewriter, WorkspaceSettingsService workspaceSettings,
-                       WorkspaceMemoryService workspaceMemories) {
+                       WorkspaceMemoryService workspaceMemories, AgentService agents) {
         this.knowledgeBases = knowledgeBases;
         this.retriever = retriever;
         this.chatModel = chatModel;
@@ -37,6 +40,7 @@ public class ChatService {
         this.queryRewriter = queryRewriter;
         this.workspaceSettings = workspaceSettings;
         this.workspaceMemories = workspaceMemories;
+        this.agents = agents;
     }
 
     public ChatResult ask(UUID knowledgeBaseId, String question) {
@@ -50,10 +54,20 @@ public class ChatService {
 
     public ChatResult ask(UUID knowledgeBaseId, UUID conversationId, String question,
                           Integer topK, String language, boolean thinkMode) {
+        return ask(knowledgeBaseId, conversationId, question, topK, language, thinkMode, null, null);
+    }
+
+    public ChatResult ask(UUID knowledgeBaseId, UUID conversationId, String question,
+                          Integer topK, String language, boolean thinkMode, UUID agentId, JadeUser actor) {
         long started = System.nanoTime();
-        if (!knowledgeBases.existsById(knowledgeBaseId)) throw new EntityNotFoundException("知识库不存在");
         if (question == null || question.isBlank()) throw new IllegalArgumentException("问题不能为空");
         String normalizedQuestion = question.trim();
+        AgentService.RuntimeConfig agent = agentId == null ? null : agents.runtime(agentId, actor);
+        UUID effectiveKnowledgeBaseId = agent == null ? knowledgeBaseId : agent.knowledgeBaseId();
+        boolean effectiveThinkMode = thinkMode || agent != null && agent.thinkMode();
+        if (!knowledgeBases.existsById(effectiveKnowledgeBaseId)) throw new EntityNotFoundException("知识库不存在");
+        UUID runId = agent == null ? null : agents.startRun(agent, actor, normalizedQuestion);
+        try {
         WorkspaceSettings settings = workspaceSettings.get();
         int resultLimit = topK == null ? settings.getTopK() : topK;
         if (resultLimit < 1 || resultLimit > 12) throw new IllegalArgumentException("召回片段数必须在 1 到 12 之间");
@@ -65,27 +79,36 @@ public class ChatService {
                 ? workspaceMemories.list().stream().map(item -> item.getContent()).toList()
                 : List.of();
         String retrievalQuery = queryRewriter.rewrite(normalizedQuestion,
-                conversationContext(knowledgeBaseId, conversationId));
+                conversationContext(effectiveKnowledgeBaseId, conversationId));
         HybridRetriever.RetrievalResult retrieval = retriever.retrieveWithDiagnostics(
-                knowledgeBaseId, retrievalQuery, resultLimit);
+                effectiveKnowledgeBaseId, retrievalQuery, resultLimit);
         List<RetrievedChunk> context = retrieval.chunks();
         ChatModelClient.Completion completion = chatModel.answer(normalizedQuestion, context, responseLanguage,
-                new ChatModelClient.Preferences(settings.getPersonalInstructions(), memories), thinkMode);
+                new ChatModelClient.Preferences(settings.getPersonalInstructions(), memories,
+                        agent == null ? "" : agent.systemPrompt(), agent == null ? null : agent.modelProviderId(),
+                        agent == null ? null : agent.modelId()), effectiveThinkMode);
         String answer = completion.answer();
         List<Source> sources = context.stream()
                 .map(item -> new Source(item.documentId(), item.documentName(), item.chunkIndex(),
                         snippet(item.content()), Math.round(item.score() * 1000) / 1000.0))
                 .toList();
-        String mode = chatModel.configured() ? "model" : "local-demo";
-        String reasoning = thinkMode ? reasoningSummary(completion.reasoning(), retrieval) : null;
-        long thinkingDurationMs = thinkMode ? Duration.ofNanos(System.nanoTime() - started).toMillis() : 0;
-        UUID savedConversationId = conversations.recordExchange(knowledgeBaseId, conversationId,
-                normalizedQuestion, answer, mode, reasoning, thinkingDurationMs, thinkMode ? 1 : 0,
+        String mode = completion.configured() ? "model" : "local-demo";
+        String reasoning = effectiveThinkMode ? reasoningSummary(completion.reasoning(), retrieval) : null;
+        long thinkingDurationMs = effectiveThinkMode ? Duration.ofNanos(System.nanoTime() - started).toMillis() : 0;
+        UUID savedConversationId = conversations.recordExchange(effectiveKnowledgeBaseId, conversationId,
+                normalizedQuestion, answer, mode, reasoning, thinkingDurationMs, effectiveThinkMode ? 1 : 0,
                 sources.stream().map(source ->
                         new ConversationService.SourceSnapshot(source.documentId(), source.documentName(),
                                 source.chunkIndex(), source.snippet(), source.score())).toList());
-        return new ChatResult(savedConversationId, answer, mode, chatModel.modelName(), sources,
-                retrieval.diagnostics(), reasoning, thinkingDurationMs, thinkMode ? 1 : 0, thinkMode);
+        if (runId != null) agents.completeRun(runId, savedConversationId, answer);
+        return new ChatResult(savedConversationId, answer, mode, completion.modelName(), sources,
+                retrieval.diagnostics(), reasoning, thinkingDurationMs, effectiveThinkMode ? 1 : 0,
+                effectiveThinkMode, agentId, agent == null ? null : agent.name(),
+                agent == null ? null : agent.version());
+        } catch (RuntimeException exception) {
+            if (runId != null) agents.failRun(runId, exception);
+            throw exception;
+        }
     }
 
     private String reasoningSummary(String modelReasoning, HybridRetriever.RetrievalResult retrieval) {
@@ -115,6 +138,7 @@ public class ChatService {
 
     public record ChatResult(UUID conversationId, String answer, String mode, String model, List<Source> sources,
                              HybridRetriever.RetrievalDiagnostics retrieval, String reasoning,
-                             long thinkingDurationMs, int thinkingSteps, boolean thinkMode) { }
+                             long thinkingDurationMs, int thinkingSteps, boolean thinkMode,
+                             UUID agentId, String agentName, Integer agentVersion) { }
     public record Source(UUID documentId, String documentName, int chunkIndex, String snippet, double score) { }
 }
