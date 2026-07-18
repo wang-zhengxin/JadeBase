@@ -63,7 +63,9 @@ public class ChatService {
         if (question == null || question.isBlank()) throw new IllegalArgumentException("问题不能为空");
         String normalizedQuestion = question.trim();
         AgentService.RuntimeConfig agent = agentId == null ? null : agents.runtime(agentId, actor);
-        UUID effectiveKnowledgeBaseId = agent == null ? knowledgeBaseId : agent.knowledgeBaseId();
+        boolean useKnowledge = agent == null || agent.useKnowledge();
+        UUID effectiveKnowledgeBaseId = agent != null && agent.useKnowledge()
+                ? agent.knowledgeBaseId() : knowledgeBaseId;
         boolean effectiveThinkMode = thinkMode || agent != null && agent.thinkMode();
         if (!knowledgeBases.existsById(effectiveKnowledgeBaseId)) throw new EntityNotFoundException("知识库不存在");
         UUID runId = agent == null ? null : agents.startRun(agent, actor, normalizedQuestion);
@@ -78,10 +80,12 @@ public class ChatService {
         List<String> memories = settings.isReferenceMemories()
                 ? workspaceMemories.list().stream().map(item -> item.getContent()).toList()
                 : List.of();
-        String retrievalQuery = queryRewriter.rewrite(normalizedQuestion,
-                conversationContext(effectiveKnowledgeBaseId, conversationId));
-        HybridRetriever.RetrievalResult retrieval = retriever.retrieveWithDiagnostics(
-                effectiveKnowledgeBaseId, retrievalQuery, resultLimit);
+        String retrievalQuery = useKnowledge ? queryRewriter.rewrite(normalizedQuestion,
+                conversationContext(effectiveKnowledgeBaseId, conversationId)) : normalizedQuestion;
+        HybridRetriever.RetrievalResult retrieval = useKnowledge
+                ? retriever.retrieveWithDiagnostics(effectiveKnowledgeBaseId, retrievalQuery, resultLimit)
+                : new HybridRetriever.RetrievalResult(List.of(),
+                        new HybridRetriever.RetrievalDiagnostics(retrievalQuery, 0, 0, 0, false, 0));
         List<RetrievedChunk> context = retrieval.chunks();
         ChatModelClient.Completion completion = chatModel.answer(normalizedQuestion, context, responseLanguage,
                 new ChatModelClient.Preferences(settings.getPersonalInstructions(), memories,
@@ -93,7 +97,8 @@ public class ChatService {
                         snippet(item.content()), Math.round(item.score() * 1000) / 1000.0))
                 .toList();
         String mode = completion.configured() ? "model" : "local-demo";
-        String reasoning = effectiveThinkMode ? reasoningSummary(completion.reasoning(), retrieval) : null;
+        String reasoning = effectiveThinkMode
+                ? reasoningSummary(completion.reasoning(), retrieval, useKnowledge) : null;
         long thinkingDurationMs = effectiveThinkMode ? Duration.ofNanos(System.nanoTime() - started).toMillis() : 0;
         UUID savedConversationId = conversations.recordExchange(effectiveKnowledgeBaseId, conversationId,
                 normalizedQuestion, answer, mode, reasoning, thinkingDurationMs, effectiveThinkMode ? 1 : 0,
@@ -111,8 +116,10 @@ public class ChatService {
         }
     }
 
-    private String reasoningSummary(String modelReasoning, HybridRetriever.RetrievalResult retrieval) {
+    private String reasoningSummary(String modelReasoning, HybridRetriever.RetrievalResult retrieval,
+                                    boolean useKnowledge) {
         if (modelReasoning != null && !modelReasoning.isBlank()) return modelReasoning;
+        if (!useKnowledge) return "已根据 Agent 指令直接分析问题，本次未启用知识库检索。";
         HybridRetriever.RetrievalDiagnostics diagnostics = retrieval.diagnostics();
         return "已分析问题并执行混合检索：向量召回 %d 个候选、关键词召回 %d 个候选，融合后选取 %d 个相关片段组织回答%s。"
                 .formatted(diagnostics.vectorCandidates(), diagnostics.keywordCandidates(), retrieval.chunks().size(),

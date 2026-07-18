@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
@@ -25,7 +26,11 @@ public class AgentDefinition {
     private String description;
     @Column(name = "system_prompt", nullable = false)
     private String systemPrompt;
-    @Column(name = "knowledge_base_id", nullable = false)
+    @Column(name = "conversation_starters_json", nullable = false)
+    private String conversationStartersJson;
+    @Column(name = "use_knowledge", nullable = false)
+    private boolean useKnowledge;
+    @Column(name = "knowledge_base_id")
     private UUID knowledgeBaseId;
     @Column(name = "model_provider_id")
     private UUID modelProviderId;
@@ -43,6 +48,14 @@ public class AgentDefinition {
     private boolean thinkMode;
     @Column(name = "max_iterations", nullable = false)
     private int maxIterations;
+    @Column(nullable = false)
+    private boolean featured;
+    @Column(name = "labels_json", nullable = false)
+    private String labelsJson;
+    @Column(name = "enabled_actions_json", nullable = false)
+    private String enabledActionsJson;
+    @Column(name = "knowledge_cutoff_date")
+    private LocalDate knowledgeCutoffDate;
     @Column(name = "current_version", nullable = false)
     private int currentVersion;
     @Column(name = "created_by", nullable = false)
@@ -56,9 +69,7 @@ public class AgentDefinition {
 
     protected AgentDefinition() { }
 
-    public AgentDefinition(String name, String description, String systemPrompt, UUID knowledgeBaseId,
-                           UUID modelProviderId, String modelId, AccessLevel accessLevel,
-                           boolean thinkMode, int maxIterations, UUID createdBy) {
+    public AgentDefinition(Configuration configuration, UUID createdBy) {
         this.id = UUID.randomUUID();
         this.createdBy = createdBy;
         this.status = Status.DRAFT;
@@ -66,22 +77,25 @@ public class AgentDefinition {
         this.currentVersion = 0;
         this.createdAt = Instant.now();
         this.updatedAt = createdAt;
-        update(name, description, systemPrompt, knowledgeBaseId, modelProviderId, modelId,
-                accessLevel, thinkMode, maxIterations);
+        update(configuration);
     }
 
-    public void update(String name, String description, String systemPrompt, UUID knowledgeBaseId,
-                       UUID modelProviderId, String modelId, AccessLevel accessLevel,
-                       boolean thinkMode, int maxIterations) {
-        this.name = name;
-        this.description = description;
-        this.systemPrompt = systemPrompt;
-        this.knowledgeBaseId = knowledgeBaseId;
-        this.modelProviderId = modelProviderId;
-        this.modelId = modelId;
-        this.accessLevel = accessLevel;
-        this.thinkMode = thinkMode;
-        this.maxIterations = maxIterations;
+    public void update(Configuration configuration) {
+        this.name = configuration.name();
+        this.description = configuration.description();
+        this.systemPrompt = configuration.systemPrompt();
+        this.conversationStartersJson = configuration.conversationStartersJson();
+        this.useKnowledge = configuration.useKnowledge();
+        this.knowledgeBaseId = configuration.knowledgeBaseId();
+        this.modelProviderId = configuration.modelProviderId();
+        this.modelId = configuration.modelId();
+        this.accessLevel = configuration.accessLevel();
+        this.thinkMode = configuration.thinkMode();
+        this.maxIterations = configuration.maxIterations();
+        this.featured = configuration.featured();
+        this.labelsJson = configuration.labelsJson();
+        this.enabledActionsJson = configuration.enabledActionsJson();
+        this.knowledgeCutoffDate = configuration.knowledgeCutoffDate();
         if (currentVersion > 0) this.status = Status.DRAFT;
         this.updatedAt = Instant.now();
     }
@@ -103,6 +117,8 @@ public class AgentDefinition {
     public String getName() { return name; }
     public String getDescription() { return description; }
     public String getSystemPrompt() { return systemPrompt; }
+    public String getConversationStartersJson() { return conversationStartersJson; }
+    public boolean isUseKnowledge() { return useKnowledge; }
     public UUID getKnowledgeBaseId() { return knowledgeBaseId; }
     public UUID getModelProviderId() { return modelProviderId; }
     public String getModelId() { return modelId; }
@@ -111,9 +127,20 @@ public class AgentDefinition {
     public boolean isEnabled() { return enabled; }
     public boolean isThinkMode() { return thinkMode; }
     public int getMaxIterations() { return maxIterations; }
+    public boolean isFeatured() { return featured; }
+    public String getLabelsJson() { return labelsJson; }
+    public String getEnabledActionsJson() { return enabledActionsJson; }
+    public LocalDate getKnowledgeCutoffDate() { return knowledgeCutoffDate; }
     public int getCurrentVersion() { return currentVersion; }
     public UUID getCreatedBy() { return createdBy; }
     public Instant getPublishedAt() { return publishedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+    public record Configuration(String name, String description, String systemPrompt,
+                                String conversationStartersJson, boolean useKnowledge,
+                                UUID knowledgeBaseId, UUID modelProviderId, String modelId,
+                                AccessLevel accessLevel, boolean thinkMode, int maxIterations,
+                                boolean featured, String labelsJson, String enabledActionsJson,
+                                LocalDate knowledgeCutoffDate) { }
 }

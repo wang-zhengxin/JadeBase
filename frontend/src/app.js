@@ -72,7 +72,6 @@ const elements = {
     availableAgentList: document.querySelector('#availableAgentList'),
     chatAgentSelect: document.querySelector('#chatAgentSelect'),
     agentTableBody: document.querySelector('#agentTableBody'),
-    agentEditorDialog: document.querySelector('#agentEditorDialog'),
     agentEditorForm: document.querySelector('#agentEditorForm'),
     adminConnectorList: document.querySelector('#adminConnectorList'),
     adminSourceList: document.querySelector('#adminSourceList'),
@@ -347,6 +346,7 @@ function emptyStateMarkup() {
                     <button type="submit" disabled>保存</button>
                 </div>
             </form>
+            <div class="agent-starter-suggestions" id="agentStarterSuggestions" aria-label="Agent 对话开场白" hidden></div>
         </div>`;
 }
 
@@ -356,6 +356,7 @@ function resetConversation() {
     elements.emptyState = elements.messages.querySelector('#emptyState');
     elements.chatPanel.classList.add('welcome-mode');
     renderCurrentUser();
+    renderAgentStarterSuggestions();
     elements.questionInput.value = '';
     elements.questionInput.focus();
 }
@@ -885,9 +886,12 @@ function renderIndexAdmin() {
 function previewAgents() {
     return [{ id: 'preview-agent', name: '研发知识助手', description: '基于研发知识库回答架构与工程规范问题',
         systemPrompt: '你是研发知识助手。回答应简洁、准确，并标注知识库证据。',
+        conversationStarters: ['梳理这个系统的核心架构', '总结研发规范中的关键要求'], useKnowledge: true,
         knowledgeBaseId: 'preview-engineering', knowledgeBaseName: '研发知识库', modelProviderId: null,
         modelId: null, modelName: '工作区默认模型', accessLevel: 'everyone', status: 'published', enabled: true,
-        thinkMode: true, maxIterations: 4, currentVersion: 1, hasUnpublishedChanges: false,
+        thinkMode: true, maxIterations: 4, featured: true, labels: ['研发', '架构'],
+        enabledActions: ['OPEN_URL', 'CODING_AGENT'], knowledgeCutoffDate: null,
+        currentVersion: 1, hasUnpublishedChanges: false,
         createdBy: 'preview-owner', createdByName: 'JadeBase 所有者', createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(), publishedAt: new Date().toISOString() }];
 }
@@ -953,37 +957,92 @@ function agentModelOptions(selectedValue = '') {
     return options.map(option => `<option value="${option.value}" ${option.value === selectedValue ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
 }
 
-function setAgentEditorTab(tab) {
-    document.querySelectorAll('[data-agent-editor-tab]').forEach(button => button.classList.toggle('active', button.dataset.agentEditorTab === tab));
-    document.querySelectorAll('[data-agent-editor-panel]').forEach(panel => { panel.hidden = panel.dataset.agentEditorPanel !== tab; });
-    const config = tab === 'config';
-    document.querySelector('#saveAgentDraftButton').hidden = !config;
-    document.querySelector('#publishAgentButton').hidden = !config;
+function showAgentBuilder() {
+    state.adminPage = 'agents';
+    document.querySelectorAll('[data-admin-section]').forEach(section => {
+        section.hidden = section.dataset.adminSection !== 'agent-editor';
+    });
+    document.querySelectorAll('[data-admin-page]').forEach(button => {
+        button.classList.toggle('active', button.dataset.adminPage === 'agents');
+    });
+    document.querySelector('#adminContent').scrollTop = 0;
+    elements.adminShell.classList.remove('sidebar-open');
+    if (!isStaticPreview) history.replaceState(null, '', '#admin/agents');
+}
+
+function closeAgentBuilder() {
+    return showAdminPage('agents');
+}
+
+function renderAgentStarterEditor(starters = ['']) {
+    const values = starters.length ? starters.slice(0, 6) : [''];
+    document.querySelector('#agentStarterEditor').innerHTML = values.map((value, index) => `
+        <div class="agent-starter-row">
+            <input data-agent-starter maxlength="240" value="${escapeHtml(value)}" placeholder="例如：帮我总结最近更新的产品文档">
+            <button class="icon-button" data-remove-agent-starter="${index}" type="button" title="移除开场白" aria-label="移除开场白">${iconMarkup('close')}</button>
+        </div>`).join('');
+}
+
+function agentStarterValues() {
+    return [...document.querySelectorAll('[data-agent-starter]')]
+        .map(input => input.value.trim()).filter((value, index, values) => value && values.indexOf(value) === index);
+}
+
+function syncAgentKnowledgeControl() {
+    const enabled = document.querySelector('#agentUseKnowledgeInput').checked;
+    const picker = document.querySelector('#agentKnowledgePicker');
+    picker.classList.toggle('disabled', !enabled);
+    picker.querySelector('select').disabled = !enabled;
+}
+
+function syncAgentShareControls() {
+    const featured = document.querySelector('#agentFeaturedInput');
+    const canFeature = document.querySelector('#agentAccessSelect').value === 'EVERYONE';
+    featured.disabled = !canFeature;
+    if (!canFeature) featured.checked = false;
+    featured.closest('.agent-setting-row').classList.toggle('disabled', !canFeature);
+}
+
+function syncAgentSubmitState() {
+    document.querySelector('#publishAgentButton').disabled = !document.querySelector('#agentNameInput').value.trim();
 }
 
 async function openAgentEditor(agentId = '') {
     const agent = state.agents.find(item => item.id === agentId);
     elements.agentEditorForm.reset();
+    showAgentBuilder();
     document.querySelector('#agentIdInput').value = agent?.id || '';
-    document.querySelector('#agentEditorTitle').textContent = agent ? agent.name : '新建 Agent';
+    document.querySelector('#agentEditorTitle').textContent = agent ? agent.name : '创建 Agent';
     document.querySelector('#agentEditorSubtitle').textContent = agent
-        ? `当前${agent.currentVersion ? `发布版本 v${agent.currentVersion}` : '尚未发布'}` : '定义行为、知识来源和运行模型。';
+        ? `当前${agent.currentVersion ? `发布版本 v${agent.currentVersion}` : '尚未发布'}${agent.hasUnpublishedChanges ? '，包含未发布修改' : ''}`
+        : '配置一个可复用的智能助手。';
     document.querySelector('#agentNameInput').value = agent?.name || '';
     document.querySelector('#agentDescriptionInput').value = agent?.description || '';
     document.querySelector('#agentSystemPromptInput').value = agent?.systemPrompt || '';
+    renderAgentStarterEditor(agent?.conversationStarters || ['']);
+    document.querySelector('#agentUseKnowledgeInput').checked = agent?.useKnowledge ?? false;
     document.querySelector('#agentKnowledgeBaseSelect').innerHTML = state.knowledgeBases.length
         ? state.knowledgeBases.map(item => `<option value="${item.id}" ${item.id === agent?.knowledgeBaseId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')
         : '<option value="">请先创建知识库</option>';
     const modelValue = agent?.modelProviderId && agent?.modelId
         ? `${agent.modelProviderId}|${encodeURIComponent(agent.modelId)}` : '';
     document.querySelector('#agentModelSelect').innerHTML = agentModelOptions(modelValue);
-    document.querySelector('#agentAccessSelect').value = agent?.accessLevel === 'private' ? 'PRIVATE' : 'EVERYONE';
+    document.querySelector('#agentAccessSelect').value = agent?.accessLevel === 'everyone' ? 'EVERYONE' : 'PRIVATE';
+    document.querySelector('#agentFeaturedInput').checked = Boolean(agent?.featured);
+    document.querySelector('#agentLabelsInput').value = (agent?.labels || []).join('，');
+    document.querySelectorAll('[data-agent-action]').forEach(input => {
+        input.checked = (agent?.enabledActions || []).includes(input.dataset.agentAction);
+    });
+    document.querySelector('#agentKnowledgeCutoffInput').value = agent?.knowledgeCutoffDate || '';
     document.querySelector('#agentMaxIterationsInput').value = agent?.maxIterations || 4;
     document.querySelector('#agentThinkModeInput').checked = Boolean(agent?.thinkMode);
-    document.querySelector('#deleteAgentButton').hidden = !agent;
-    document.querySelectorAll('[data-agent-editor-tab]').forEach(button => { button.hidden = !agent && button.dataset.agentEditorTab !== 'config'; });
-    setAgentEditorTab('config');
-    elements.agentEditorDialog.showModal();
+    document.querySelector('#agentHistorySection').hidden = !agent;
+    document.querySelector('#agentDangerZone').hidden = !agent;
+    document.querySelector('#saveAgentDraftButton').hidden = !agent;
+    document.querySelector('#publishAgentButton').textContent = agent ? '发布更新' : '创建';
+    syncAgentKnowledgeControl();
+    syncAgentShareControls();
+    syncAgentSubmitState();
     document.querySelector('#agentNameInput').focus();
     if (agent) await loadAgentHistory(agent.id);
 }
@@ -1016,13 +1075,20 @@ function renderAgentRuns(runs) {
 function agentPayload() {
     const model = document.querySelector('#agentModelSelect').value;
     const [modelProviderId, encodedModelId] = model ? model.split('|') : [null, null];
+    const useKnowledge = document.querySelector('#agentUseKnowledgeInput').checked;
     return {
         name: document.querySelector('#agentNameInput').value.trim(),
         description: document.querySelector('#agentDescriptionInput').value.trim(),
         systemPrompt: document.querySelector('#agentSystemPromptInput').value.trim(),
-        knowledgeBaseId: document.querySelector('#agentKnowledgeBaseSelect').value,
+        conversationStarters: agentStarterValues(),
+        useKnowledge,
+        knowledgeBaseId: useKnowledge ? document.querySelector('#agentKnowledgeBaseSelect').value || null : null,
         modelProviderId, modelId: encodedModelId ? decodeURIComponent(encodedModelId) : null,
         accessLevel: document.querySelector('#agentAccessSelect').value,
+        featured: document.querySelector('#agentFeaturedInput').checked,
+        labels: document.querySelector('#agentLabelsInput').value.split(/[,，]/).map(value => value.trim()).filter(Boolean),
+        enabledActions: [...document.querySelectorAll('[data-agent-action]:checked')].map(input => input.dataset.agentAction),
+        knowledgeCutoffDate: document.querySelector('#agentKnowledgeCutoffInput').value || null,
         thinkMode: document.querySelector('#agentThinkModeInput').checked,
         maxIterations: Number(document.querySelector('#agentMaxIterationsInput').value)
     };
@@ -1031,12 +1097,17 @@ function agentPayload() {
 async function saveAgentDefinition() {
     const agentId = document.querySelector('#agentIdInput').value;
     const payload = agentPayload();
-    if (!payload.name || !payload.systemPrompt || !payload.knowledgeBaseId) throw new Error('请填写名称、系统提示词并选择知识库');
+    if (!payload.name) throw new Error('请填写 Agent 名称');
+    if (payload.useKnowledge && !payload.knowledgeBaseId) throw new Error('开启知识库后需要选择一个知识库');
+    if (payload.conversationStarters.length > 6) throw new Error('对话开场白最多添加 6 条');
+    if (payload.labels.length > 8) throw new Error('标签最多添加 8 个');
     let saved;
     if (isStaticPreview) {
         const existing = state.agents.find(item => item.id === agentId);
         saved = { ...(existing || {}), ...payload, id: existing?.id || `preview-agent-${Date.now()}`,
-            knowledgeBaseName: state.knowledgeBases.find(item => item.id === payload.knowledgeBaseId)?.name || '知识库',
+            knowledgeBaseName: payload.useKnowledge
+                ? state.knowledgeBases.find(item => item.id === payload.knowledgeBaseId)?.name || '知识库'
+                : '未使用知识库',
             modelName: payload.modelId || '工作区默认模型', accessLevel: payload.accessLevel.toLowerCase(),
             status: existing?.status || 'draft', enabled: existing?.enabled ?? true,
             currentVersion: existing?.currentVersion || 0, hasUnpublishedChanges: Boolean(existing?.currentVersion),
@@ -1067,16 +1138,31 @@ function renderAvailableAgents() {
         `<option value="${agent.id}" ${agent.id === selected ? 'selected' : ''}>${escapeHtml(agent.name)}</option>`).join('');
     elements.availableAgentList.innerHTML = state.availableAgents.map(agent => `
         <button class="knowledge-item agent-sidebar-item ${agent.id === selected ? 'active' : ''}" data-sidebar-agent="${agent.id}" type="button">${iconMarkup('bot')}<span>${escapeHtml(agent.name)}</span></button>`).join('');
+    renderAgentStarterSuggestions();
+}
+
+function renderAgentStarterSuggestions() {
+    const container = document.querySelector('#agentStarterSuggestions');
+    if (!container) return;
+    const agent = state.availableAgents.find(item => item.id === state.activeAgentId);
+    const starters = agent?.conversationStarters || [];
+    container.hidden = !starters.length;
+    container.innerHTML = starters.map(starter => `
+        <button type="button" data-agent-starter-question="${escapeHtml(starter)}">${escapeHtml(starter)}${iconMarkup('chevron-right')}</button>`).join('');
 }
 
 async function selectAgent(agentId) {
     state.activeAgentId = agentId || null;
     const agent = state.availableAgents.find(item => item.id === agentId);
     if (agent) {
-        state.activeId = agent.knowledgeBaseId;
+        state.activeId = agent.knowledgeBaseId || state.activeId || state.knowledgeBases[0]?.id || null;
         state.thinkMode = Boolean(agent.thinkMode);
         elements.thinkModeButton.classList.toggle('active', state.thinkMode);
         elements.thinkModeButton.setAttribute('aria-pressed', String(state.thinkMode));
+    } else {
+        state.thinkMode = false;
+        elements.thinkModeButton.classList.remove('active');
+        elements.thinkModeButton.setAttribute('aria-pressed', 'false');
     }
     renderAvailableAgents();
     renderKnowledgeBases();
@@ -1675,21 +1761,39 @@ elements.agentTableBody.addEventListener('click', async event => {
         if (openButton || row) await openAgentEditor((openButton || row).dataset.agentOpen || row.dataset.agentEdit);
     } catch (error) { showToast(error.message); }
 });
-document.querySelector('#agentEditorTabs').addEventListener('click', event => {
-    const button = event.target.closest('[data-agent-editor-tab]');
-    if (button) setAgentEditorTab(button.dataset.agentEditorTab);
+document.querySelector('#backAgentEditorButton').addEventListener('click', () => closeAgentBuilder().catch(error => showToast(error.message)));
+document.querySelector('#cancelAgentEditorButton').addEventListener('click', () => closeAgentBuilder().catch(error => showToast(error.message)));
+document.querySelector('#agentNameInput').addEventListener('input', syncAgentSubmitState);
+document.querySelector('#agentUseKnowledgeInput').addEventListener('change', syncAgentKnowledgeControl);
+document.querySelector('#agentAccessSelect').addEventListener('change', syncAgentShareControls);
+document.querySelector('#addAgentStarterButton').addEventListener('click', () => {
+    const values = [...document.querySelectorAll('[data-agent-starter]')].map(input => input.value);
+    if (values.length >= 6) {
+        showToast('对话开场白最多添加 6 条');
+        return;
+    }
+    renderAgentStarterEditor([...values, '']);
+    document.querySelectorAll('[data-agent-starter]')[values.length].focus();
 });
-document.querySelector('#closeAgentEditorButton').addEventListener('click', () => elements.agentEditorDialog.close());
-document.querySelector('#cancelAgentEditorButton').addEventListener('click', () => elements.agentEditorDialog.close());
-elements.agentEditorForm.addEventListener('submit', async event => {
-    event.preventDefault();
+document.querySelector('#agentStarterEditor').addEventListener('click', event => {
+    const button = event.target.closest('[data-remove-agent-starter]');
+    if (!button) return;
+    const inputs = [...document.querySelectorAll('[data-agent-starter]')];
+    const values = inputs.filter((_, index) => index !== Number(button.dataset.removeAgentStarter)).map(input => input.value);
+    renderAgentStarterEditor(values.length ? values : ['']);
+});
+document.querySelector('#saveAgentDraftButton').addEventListener('click', async () => {
+    const button = document.querySelector('#saveAgentDraftButton');
+    button.disabled = true;
     try {
         const saved = await saveAgentDefinition();
-        elements.agentEditorDialog.close();
-        showToast(`${saved.name} 已保存为草稿`);
+        await openAgentEditor(saved.id);
+        showToast(`${saved.name} 的草稿已保存`);
     } catch (error) { showToast(error.message); }
+    finally { button.disabled = false; }
 });
-document.querySelector('#publishAgentButton').addEventListener('click', async () => {
+elements.agentEditorForm.addEventListener('submit', async event => {
+    event.preventDefault();
     const button = document.querySelector('#publishAgentButton');
     button.disabled = true;
     try {
@@ -1702,10 +1806,10 @@ document.querySelector('#publishAgentButton').addEventListener('click', async ()
         state.agents = state.agents.map(item => item.id === published.id ? published : item);
         renderAgentAdmin();
         await loadAvailableAgents();
-        elements.agentEditorDialog.close();
+        await closeAgentBuilder();
         showToast(`${published.name} v${published.currentVersion} 已发布`);
     } catch (error) { showToast(error.message); }
-    finally { button.disabled = false; }
+    finally { syncAgentSubmitState(); }
 });
 document.querySelector('#deleteAgentButton').addEventListener('click', async () => {
     const agentId = document.querySelector('#agentIdInput').value;
@@ -1717,7 +1821,7 @@ document.querySelector('#deleteAgentButton').addEventListener('click', async () 
         if (state.activeAgentId === agentId) state.activeAgentId = null;
         renderAgentAdmin();
         await loadAvailableAgents();
-        elements.agentEditorDialog.close();
+        await closeAgentBuilder();
         showToast('Agent 已删除');
     } catch (error) { showToast(error.message); }
 });
@@ -2295,6 +2399,12 @@ elements.messages.addEventListener('submit', async event => {
 elements.messages.addEventListener('click', event => {
     if (event.target.closest('[data-welcome-add]')) {
         document.querySelector('#openCreateButton').click();
+        return;
+    }
+    const starter = event.target.closest('[data-agent-starter-question]');
+    if (starter) {
+        elements.questionInput.value = starter.dataset.agentStarterQuestion;
+        elements.chatForm.requestSubmit();
         return;
     }
     const toggle = event.target.closest('[data-thinking-toggle]');

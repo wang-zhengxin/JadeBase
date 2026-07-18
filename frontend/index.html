@@ -168,6 +168,7 @@
                         <button type="submit" disabled>保存</button>
                     </div>
                 </form>
+                <div class="agent-starter-suggestions" id="agentStarterSuggestions" aria-label="Agent 对话开场白" hidden></div>
             </div>
         </section>
 
@@ -473,6 +474,90 @@
             </section>
         </div>
 
+        <div class="admin-content-inner agent-builder-page" data-admin-section="agent-editor" hidden>
+            <form class="agent-builder-form" id="agentEditorForm">
+                <input id="agentIdInput" type="hidden">
+                <header class="agent-builder-header">
+                    <button class="agent-back-button" id="backAgentEditorButton" type="button"><svg class="ui-icon"><use href="#icon-chevron-left"/></svg> 返回</button>
+                    <div class="agent-builder-title-row">
+                        <div class="agent-builder-title"><span class="agent-builder-symbol"><svg class="ui-icon"><use href="#icon-bot"/></svg></span><div><h1 id="agentEditorTitle">创建 Agent</h1><p id="agentEditorSubtitle">配置一个可复用的智能助手。</p></div></div>
+                        <div class="agent-builder-commands">
+                            <button class="secondary-button" id="cancelAgentEditorButton" type="button">取消</button>
+                            <button class="secondary-button" id="saveAgentDraftButton" type="button" hidden>保存草稿</button>
+                            <button class="primary-button" id="publishAgentButton" type="submit" disabled>创建</button>
+                        </div>
+                    </div>
+                </header>
+
+                <section class="agent-builder-section agent-identity-section">
+                    <div class="agent-builder-fields">
+                        <label for="agentNameInput"><strong>名称</strong><input id="agentNameInput" maxlength="120" required placeholder="为你的 Agent 命名"></label>
+                        <label for="agentDescriptionInput"><strong>描述 <span>（可选）</span></strong><textarea id="agentDescriptionInput" maxlength="500" rows="5" placeholder="这个 Agent 可以做什么？"></textarea></label>
+                    </div>
+                    <aside class="agent-avatar-panel"><strong>Agent 头像</strong><span class="agent-avatar-preview"><svg class="ui-icon"><use href="#icon-bot"/></svg></span></aside>
+                </section>
+
+                <section class="agent-builder-section">
+                    <label class="agent-builder-label" for="agentSystemPromptInput"><strong>指令 <span>（可选）</span></strong><small>定义 Agent 的角色、目标、边界与回答方式。</small></label>
+                    <textarea class="agent-builder-textarea" id="agentSystemPromptInput" maxlength="12000" rows="6" placeholder="例如：先给出结论，再列出依据；信息不足时明确说明，不编造事实。"></textarea>
+                    <div class="agent-starter-heading"><span><strong>对话开场白 <span>（可选）</span></strong><small>帮助用户理解这个 Agent 能做什么。</small></span><button class="icon-button" id="addAgentStarterButton" type="button" title="添加开场白" aria-label="添加对话开场白"><svg class="ui-icon"><use href="#icon-add"/></svg></button></div>
+                    <div class="agent-starter-editor" id="agentStarterEditor"></div>
+                </section>
+
+                <section class="agent-builder-section">
+                    <div class="agent-builder-section-heading"><h2>知识</h2><p>为 Agent 指定用于回答问题的企业知识库。</p></div>
+                    <div class="agent-setting-panel">
+                        <label class="agent-setting-row"><span><strong>使用知识库</strong><small>允许 Agent 引用所选知识库中的文档。</small></span><span class="toggle"><input id="agentUseKnowledgeInput" type="checkbox"><span></span></span></label>
+                        <label class="agent-knowledge-picker" id="agentKnowledgePicker" for="agentKnowledgeBaseSelect"><span><strong>知识库</strong><small>选择一个已建立索引的知识库</small></span><select id="agentKnowledgeBaseSelect"></select></label>
+                    </div>
+                </section>
+
+                <section class="agent-builder-section">
+                    <div class="agent-builder-section-heading"><h2>分享 Agent</h2></div>
+                    <div class="agent-setting-panel">
+                        <label class="agent-setting-row"><span><strong>分享范围</strong><small>选择仅自己使用，或开放给工作区所有人。</small></span><select class="agent-inline-select" id="agentAccessSelect"><option value="PRIVATE">仅创建者</option><option value="EVERYONE">工作区所有人</option></select></label>
+                        <label class="agent-setting-row"><span><strong>精选 Agent</strong><small>在 Agent 列表顶部展示，并优先显示在侧边栏。</small></span><span class="toggle"><input id="agentFeaturedInput" type="checkbox"><span></span></span></label>
+                        <label class="agent-label-field" for="agentLabelsInput"><svg class="ui-icon"><use href="#icon-book"/></svg><input id="agentLabelsInput" maxlength="320" placeholder="添加标签，用逗号分隔"></label>
+                    </div>
+                </section>
+
+                <section class="agent-builder-section">
+                    <details class="agent-builder-disclosure" open>
+                        <summary><span><strong>Actions</strong><small>选择 Agent 可以使用的工具与能力。</small></span><svg class="ui-icon"><use href="#icon-chevron-down"/></svg></summary>
+                        <div class="agent-action-list">
+                            <label class="agent-action-row"><span><strong>图像生成</strong><small>根据文本生成和编辑图像。</small></span><span class="toggle"><input data-agent-action="IMAGE_GENERATION" type="checkbox"><span></span></span></label>
+                            <label class="agent-action-row"><span><strong>联网搜索</strong><small>检索实时信息和最新结果。</small></span><span class="toggle"><input data-agent-action="WEB_SEARCH" type="checkbox"><span></span></span></label>
+                            <label class="agent-action-row"><span><strong>打开 URL</strong><small>读取网页链接中的公开内容。</small></span><span class="toggle"><input data-agent-action="OPEN_URL" type="checkbox"><span></span></span></label>
+                            <label class="agent-action-row"><span><strong>代码解释器</strong><small>生成并执行代码完成分析任务。</small></span><span class="toggle"><input data-agent-action="CODE_INTERPRETER" type="checkbox"><span></span></span></label>
+                            <label class="agent-action-row"><span><strong>代码仓库 Agent</strong><small>分析代码仓库并回答工程问题。</small></span><span class="toggle"><input data-agent-action="CODING_AGENT" type="checkbox"><span></span></span></label>
+                        </div>
+                    </details>
+                </section>
+
+                <section class="agent-builder-section">
+                    <details class="agent-builder-disclosure" open>
+                        <summary><span><strong>高级选项</strong><small>调整模型、知识边界和执行策略。</small></span><svg class="ui-icon"><use href="#icon-chevron-down"/></svg></summary>
+                        <div class="agent-setting-panel agent-advanced-panel">
+                            <label class="agent-setting-row"><span><strong>默认模型</strong><small>未指定时使用工作区默认模型。</small></span><select class="agent-inline-select" id="agentModelSelect"><option value="">工作区默认模型</option></select></label>
+                            <label class="agent-setting-row"><span><strong>知识截止日期 <em>（可选）</em></strong><small>记录 Agent 知识范围的时间边界。</small></span><input class="agent-date-input" id="agentKnowledgeCutoffInput" type="date"></label>
+                            <label class="agent-setting-row"><span><strong>默认深度思考</strong><small>使用支持推理的模型时展示思考摘要。</small></span><span class="toggle"><input id="agentThinkModeInput" type="checkbox"><span></span></span></label>
+                            <label class="agent-setting-row"><span><strong>最大执行轮次</strong><small>为后续多步工具调用设置执行上限。</small></span><input class="agent-number-input" id="agentMaxIterationsInput" type="number" min="1" max="12" value="4" required></label>
+                        </div>
+                    </details>
+                </section>
+
+                <section class="agent-builder-section agent-history-section" id="agentHistorySection" hidden>
+                    <div class="agent-builder-section-heading"><h2>发布与运行</h2><p>查看不可变发布版本和最近运行状态。</p></div>
+                    <div class="agent-history-columns">
+                        <div><h3>发布版本</h3><div class="agent-history-list" id="agentVersionList"><p class="admin-empty-state">尚未发布版本</p></div></div>
+                        <div><h3>运行记录</h3><div class="agent-history-list" id="agentRunList"><p class="admin-empty-state">尚无运行记录</p></div></div>
+                    </div>
+                </section>
+
+                <footer class="agent-builder-danger" id="agentDangerZone" hidden><div><strong>删除 Agent</strong><small>同时删除发布版本和运行记录，此操作无法撤销。</small></div><button class="danger-outline-button" id="deleteAgentButton" type="button">删除 Agent</button></footer>
+            </form>
+        </div>
+
         <div class="admin-content-inner" data-admin-section="existing-connectors" hidden>
             <header class="admin-page-header">
                 <svg class="ui-icon" aria-hidden="true"><use href="#icon-book"/></svg>
@@ -616,45 +701,6 @@
         </div>
     </main>
 </div>
-
-<dialog class="model-provider-dialog agent-editor-dialog" id="agentEditorDialog">
-    <form id="agentEditorForm">
-        <header class="model-provider-header agent-editor-header">
-            <div class="model-provider-identity"><span class="provider-mark"><svg class="ui-icon"><use href="#icon-bot"/></svg></span><div><h2 id="agentEditorTitle">新建 Agent</h2><p id="agentEditorSubtitle">定义行为、知识来源和运行模型。</p></div></div>
-            <button class="icon-button" id="closeAgentEditorButton" type="button" aria-label="关闭"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
-        </header>
-        <div class="agent-editor-tabs" id="agentEditorTabs" role="tablist">
-            <button class="active" data-agent-editor-tab="config" type="button">配置</button>
-            <button data-agent-editor-tab="versions" type="button">发布版本</button>
-            <button data-agent-editor-tab="runs" type="button">运行记录</button>
-        </div>
-        <div class="model-provider-body agent-editor-body" data-agent-editor-panel="config">
-            <input id="agentIdInput" type="hidden">
-            <div class="agent-form-grid">
-                <label for="agentNameInput">名称</label><input id="agentNameInput" maxlength="120" required placeholder="例如：Java 代码审查助手">
-                <label for="agentDescriptionInput">描述 <span>（可选）</span></label><textarea id="agentDescriptionInput" maxlength="500" rows="2" placeholder="说明这个 Agent 适合处理的任务"></textarea>
-                <label for="agentSystemPromptInput">系统提示词</label><textarea id="agentSystemPromptInput" maxlength="12000" rows="7" required placeholder="定义角色、目标、边界与输出格式"></textarea>
-            </div>
-            <div class="agent-binding-grid">
-                <label><span>知识库</span><select id="agentKnowledgeBaseSelect" required></select></label>
-                <label><span>模型</span><select id="agentModelSelect"><option value="">工作区默认模型</option></select></label>
-                <label><span>访问范围</span><select id="agentAccessSelect"><option value="EVERYONE">工作区所有人</option><option value="PRIVATE">仅创建者</option></select></label>
-                <label><span>最大执行轮次</span><input id="agentMaxIterationsInput" type="number" min="1" max="12" value="4" required></label>
-            </div>
-            <label class="agent-think-setting"><span><strong>默认深度思考</strong><small>使用支持推理的模型时展示思考摘要</small></span><span class="toggle"><input id="agentThinkModeInput" type="checkbox"><span></span></span></label>
-        </div>
-        <div class="model-provider-body agent-history-panel" data-agent-editor-panel="versions" hidden><div id="agentVersionList" class="agent-history-list"><p class="admin-empty-state">尚未发布版本</p></div></div>
-        <div class="model-provider-body agent-history-panel" data-agent-editor-panel="runs" hidden><div id="agentRunList" class="agent-history-list"><p class="admin-empty-state">尚无运行记录</p></div></div>
-        <footer class="model-provider-footer agent-editor-footer">
-            <button class="danger-outline-button" id="deleteAgentButton" type="button" hidden>删除 Agent</button>
-            <div class="agent-editor-footer-actions">
-                <button class="secondary-button" id="cancelAgentEditorButton" type="button">取消</button>
-                <button class="secondary-button" id="saveAgentDraftButton" type="submit">保存草稿</button>
-                <button class="primary-button" id="publishAgentButton" type="button">发布 Agent</button>
-            </div>
-        </footer>
-    </form>
-</dialog>
 
 <dialog class="model-provider-dialog invite-users-dialog" id="inviteUsersDialog">
     <form id="inviteUsersForm">

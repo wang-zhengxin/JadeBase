@@ -14,12 +14,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class AgentService {
+
+    private static final Set<String> SUPPORTED_ACTIONS = Set.of(
+            "IMAGE_GENERATION", "WEB_SEARCH", "OPEN_URL", "CODE_INTERPRETER", "CODING_AGENT");
 
     private final AgentDefinitionRepository agents;
     private final AgentVersionRepository versions;
@@ -61,26 +66,23 @@ public class AgentService {
     public List<AvailableAgentView> listAvailable(JadeUser actor) {
         return agents.findAllByOrderByUpdatedAtDesc().stream()
                 .filter(agent -> agent.isEnabled() && agent.getCurrentVersion() > 0)
-                .filter(agent -> canUse(agent.getCreatedBy(), agent.getAccessLevel(), actor))
-                .map(agent -> runtimeView(runtime(agent.getId(), actor))).toList();
+                .filter(agent -> canUsePublishedVersion(agent, actor))
+                .map(agent -> runtimeView(runtime(agent.getId(), actor)))
+                .sorted((left, right) -> Boolean.compare(right.featured(), left.featured())).toList();
     }
 
     @Transactional
     public AgentView create(AgentInput input, JadeUser actor) {
-        ValidatedInput value = validate(input);
-        AgentDefinition agent = agents.save(new AgentDefinition(value.name(), value.description(),
-                value.systemPrompt(), value.knowledgeBaseId(), value.modelProviderId(), value.modelId(),
-                value.accessLevel(), value.thinkMode(), value.maxIterations(), actor.getId()));
+        AgentDefinition.Configuration value = validate(input);
+        AgentDefinition agent = agents.save(new AgentDefinition(value, actor.getId()));
         return view(agent);
     }
 
     @Transactional
     public AgentView update(UUID agentId, AgentInput input) {
         AgentDefinition agent = requireAgent(agentId);
-        ValidatedInput value = validate(input);
-        agent.update(value.name(), value.description(), value.systemPrompt(), value.knowledgeBaseId(),
-                value.modelProviderId(), value.modelId(), value.accessLevel(), value.thinkMode(),
-                value.maxIterations());
+        AgentDefinition.Configuration value = validate(input);
+        agent.update(value);
         return view(agents.save(agent));
     }
 
@@ -134,8 +136,11 @@ public class AgentService {
             throw new IdentityAccessException("你没有权限使用这个 Agent");
         }
         return new RuntimeConfig(agentId, version.getVersion(), version.getName(), version.getDescription(),
-                version.getSystemPrompt(), version.getKnowledgeBaseId(), version.getModelProviderId(),
-                version.getModelId(), version.isThinkMode(), version.getMaxIterations());
+                version.getSystemPrompt(), AgentConfigJson.read(version.getConversationStartersJson()),
+                version.isUseKnowledge(), version.getKnowledgeBaseId(), version.getModelProviderId(),
+                version.getModelId(), version.isThinkMode(), version.getMaxIterations(), version.isFeatured(),
+                AgentConfigJson.read(version.getLabelsJson()), AgentConfigJson.read(version.getEnabledActionsJson()),
+                version.getKnowledgeCutoffDate());
     }
 
     @Transactional
@@ -157,13 +162,17 @@ public class AgentService {
         runs.save(run);
     }
 
-    private ValidatedInput validate(AgentInput input) {
+    private AgentDefinition.Configuration validate(AgentInput input) {
         if (input == null) throw new IllegalArgumentException("Agent 配置不能为空");
         String name = required(input.name(), "名称", 120);
         String description = optional(input.description(), 500, "描述");
-        String prompt = required(input.systemPrompt(), "系统提示词", 12000);
-        UUID knowledgeBaseId = input.knowledgeBaseId();
-        if (knowledgeBaseId == null || !knowledgeBases.existsById(knowledgeBaseId)) {
+        String prompt = optional(input.systemPrompt(), 12000, "系统提示词");
+        if (prompt == null) prompt = "";
+        List<String> starters = stringList(input.conversationStarters(), 6, 240, "对话开场白");
+        boolean useKnowledge = input.useKnowledge() == null
+                ? input.knowledgeBaseId() != null : input.useKnowledge();
+        UUID knowledgeBaseId = useKnowledge ? input.knowledgeBaseId() : null;
+        if (useKnowledge && (knowledgeBaseId == null || !knowledgeBases.existsById(knowledgeBaseId))) {
             throw new IllegalArgumentException("请选择有效的知识库");
         }
         UUID providerId = input.modelProviderId();
@@ -177,15 +186,24 @@ public class AgentService {
             if (!providers.existsById(model.getProviderId())) throw new IllegalArgumentException("模型供应商不存在");
         }
         AgentDefinition.AccessLevel access = input.accessLevel() == null
-                ? AgentDefinition.AccessLevel.EVERYONE : input.accessLevel();
+                ? AgentDefinition.AccessLevel.PRIVATE : input.accessLevel();
         int maxIterations = input.maxIterations() == null ? 4 : input.maxIterations();
         if (maxIterations < 1 || maxIterations > 12) throw new IllegalArgumentException("最大执行轮次必须在 1 到 12 之间");
-        return new ValidatedInput(name, description, prompt, knowledgeBaseId, providerId, modelId,
-                access, Boolean.TRUE.equals(input.thinkMode()), maxIterations);
+        List<String> labels = stringList(input.labels(), 8, 40, "标签");
+        List<String> actions = stringList(input.enabledActions(), SUPPORTED_ACTIONS.size(), 40, "Action");
+        if (!SUPPORTED_ACTIONS.containsAll(actions)) throw new IllegalArgumentException("包含不支持的 Agent Action");
+        boolean featured = Boolean.TRUE.equals(input.featured()) && access == AgentDefinition.AccessLevel.EVERYONE;
+        LocalDate cutoff = input.knowledgeCutoffDate();
+        if (cutoff != null && cutoff.isAfter(LocalDate.now())) throw new IllegalArgumentException("知识截止日期不能晚于今天");
+        return new AgentDefinition.Configuration(name, description, prompt, AgentConfigJson.write(starters),
+                useKnowledge, knowledgeBaseId, providerId, modelId, access,
+                Boolean.TRUE.equals(input.thinkMode()), maxIterations, featured,
+                AgentConfigJson.write(labels), AgentConfigJson.write(actions), cutoff);
     }
 
     private AgentView view(AgentDefinition agent) {
-        KnowledgeBase knowledgeBase = knowledgeBases.findById(agent.getKnowledgeBaseId()).orElse(null);
+        KnowledgeBase knowledgeBase = agent.getKnowledgeBaseId() == null
+                ? null : knowledgeBases.findById(agent.getKnowledgeBaseId()).orElse(null);
         JadeUser creator = users.findById(agent.getCreatedBy()).orElse(null);
         String modelName = agent.getModelId();
         if (modelName == null) modelName = "工作区默认模型";
@@ -194,21 +212,26 @@ public class AgentService {
             if (provider != null) modelName += " · " + provider.getDisplayName();
         }
         return new AgentView(agent.getId(), agent.getName(), agent.getDescription(), agent.getSystemPrompt(),
-                agent.getKnowledgeBaseId(), knowledgeBase == null ? "已删除的知识库" : knowledgeBase.getName(),
+                AgentConfigJson.read(agent.getConversationStartersJson()), agent.isUseKnowledge(),
+                agent.getKnowledgeBaseId(), knowledgeBaseName(agent.isUseKnowledge(), knowledgeBase),
                 agent.getModelProviderId(), agent.getModelId(), modelName,
                 agent.getAccessLevel().name().toLowerCase(Locale.ROOT),
                 agent.getStatus().name().toLowerCase(Locale.ROOT), agent.isEnabled(), agent.isThinkMode(),
-                agent.getMaxIterations(), agent.getCurrentVersion(),
+                agent.getMaxIterations(), agent.isFeatured(), AgentConfigJson.read(agent.getLabelsJson()),
+                AgentConfigJson.read(agent.getEnabledActionsJson()), agent.getKnowledgeCutoffDate(), agent.getCurrentVersion(),
                 agent.getCurrentVersion() > 0 && agent.getStatus() == AgentDefinition.Status.DRAFT,
                 agent.getCreatedBy(), creatorName(creator), agent.getPublishedAt(),
                 agent.getCreatedAt(), agent.getUpdatedAt());
     }
 
     private AvailableAgentView runtimeView(RuntimeConfig value) {
-        KnowledgeBase knowledgeBase = knowledgeBases.findById(value.knowledgeBaseId()).orElse(null);
+        KnowledgeBase knowledgeBase = value.knowledgeBaseId() == null
+                ? null : knowledgeBases.findById(value.knowledgeBaseId()).orElse(null);
         return new AvailableAgentView(value.id(), value.version(), value.name(), value.description(),
-                value.knowledgeBaseId(), knowledgeBase == null ? "知识库" : knowledgeBase.getName(),
-                value.modelId() == null ? "工作区默认模型" : value.modelId(), value.thinkMode());
+                value.conversationStarters(), value.useKnowledge(), value.knowledgeBaseId(),
+                knowledgeBaseName(value.useKnowledge(), knowledgeBase),
+                value.modelId() == null ? "工作区默认模型" : value.modelId(), value.thinkMode(),
+                value.featured(), value.labels(), value.enabledActions());
     }
 
     private VersionView versionView(AgentVersion version) {
@@ -229,6 +252,12 @@ public class AgentService {
     private boolean canUse(UUID createdBy, AgentDefinition.AccessLevel access, JadeUser actor) {
         return access == AgentDefinition.AccessLevel.EVERYONE || createdBy.equals(actor.getId())
                 || actor.getRole() == JadeUser.Role.OWNER;
+    }
+
+    private boolean canUsePublishedVersion(AgentDefinition agent, JadeUser actor) {
+        return versions.findByAgentIdAndVersion(agent.getId(), agent.getCurrentVersion())
+                .map(version -> canUse(agent.getCreatedBy(), version.getAccessLevel(), actor))
+                .orElse(false);
     }
 
     private AgentDefinition requireAgent(UUID id) {
@@ -260,24 +289,47 @@ public class AgentService {
 
     private String text(String value) { return value == null ? "" : value; }
 
+    private List<String> stringList(List<String> values, int maxItems, int maxLength, String label) {
+        if (values == null) return List.of();
+        List<String> result = values.stream().map(value -> value == null ? "" : value.trim())
+                .filter(value -> !value.isBlank()).distinct().toList();
+        if (result.size() > maxItems) throw new IllegalArgumentException(label + "最多允许 " + maxItems + " 项");
+        if (result.stream().anyMatch(value -> value.length() > maxLength)) {
+            throw new IllegalArgumentException(label + "单项不能超过 " + maxLength + " 个字符");
+        }
+        return result;
+    }
+
+    private String knowledgeBaseName(boolean useKnowledge, KnowledgeBase knowledgeBase) {
+        if (!useKnowledge) return "未使用知识库";
+        return knowledgeBase == null ? "已删除的知识库" : knowledgeBase.getName();
+    }
+
     public record AgentInput(String name, String description, String systemPrompt, UUID knowledgeBaseId,
                              UUID modelProviderId, String modelId, AgentDefinition.AccessLevel accessLevel,
-                             Boolean thinkMode, Integer maxIterations) { }
-    private record ValidatedInput(String name, String description, String systemPrompt, UUID knowledgeBaseId,
-                                  UUID modelProviderId, String modelId, AgentDefinition.AccessLevel accessLevel,
-                                  boolean thinkMode, int maxIterations) { }
+                             Boolean thinkMode, Integer maxIterations, List<String> conversationStarters,
+                             Boolean useKnowledge, Boolean featured, List<String> labels,
+                             List<String> enabledActions, LocalDate knowledgeCutoffDate) { }
     public record AgentView(UUID id, String name, String description, String systemPrompt,
+                            List<String> conversationStarters, boolean useKnowledge,
                             UUID knowledgeBaseId, String knowledgeBaseName, UUID modelProviderId,
                             String modelId, String modelName, String accessLevel, String status,
-                            boolean enabled, boolean thinkMode, int maxIterations, int currentVersion,
+                            boolean enabled, boolean thinkMode, int maxIterations, boolean featured,
+                            List<String> labels, List<String> enabledActions, LocalDate knowledgeCutoffDate,
+                            int currentVersion,
                             boolean hasUnpublishedChanges, UUID createdBy, String createdByName,
                             Instant publishedAt, Instant createdAt, Instant updatedAt) { }
     public record AvailableAgentView(UUID id, int version, String name, String description,
+                                     List<String> conversationStarters, boolean useKnowledge,
                                      UUID knowledgeBaseId, String knowledgeBaseName,
-                                     String modelName, boolean thinkMode) { }
+                                     String modelName, boolean thinkMode, boolean featured,
+                                     List<String> labels, List<String> enabledActions) { }
     public record RuntimeConfig(UUID id, int version, String name, String description, String systemPrompt,
+                                List<String> conversationStarters, boolean useKnowledge,
                                 UUID knowledgeBaseId, UUID modelProviderId, String modelId,
-                                boolean thinkMode, int maxIterations) { }
+                                boolean thinkMode, int maxIterations, boolean featured,
+                                List<String> labels, List<String> enabledActions,
+                                LocalDate knowledgeCutoffDate) { }
     public record VersionView(int version, String name, String description, String modelName,
                               String accessLevel, String publishedBy, Instant publishedAt) { }
     public record RunView(UUID id, int version, UUID conversationId, String status, String question,
