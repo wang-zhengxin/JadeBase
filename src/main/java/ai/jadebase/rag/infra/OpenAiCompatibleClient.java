@@ -27,8 +27,9 @@ public class OpenAiCompatibleClient implements ChatModelClient {
     public Completion answer(String question, List<RetrievedChunk> context, String language,
                              Preferences preferences, boolean thinkMode) {
         boolean english = "en".equalsIgnoreCase(language);
-        ModelRuntimeResolver.RuntimeModel model = models.current();
-        if (!model.configured()) return new Completion(fallbackAnswer(context, english), null);
+        ModelRuntimeResolver.RuntimeModel model = models.resolve(preferences.modelProviderId(), preferences.modelId());
+        if (!model.configured()) return new Completion(fallbackAnswer(context, english), null,
+                model.modelId(), false);
 
         StringBuilder sources = new StringBuilder();
         for (int i = 0; i < context.size(); i++) {
@@ -60,7 +61,7 @@ public class OpenAiCompatibleClient implements ChatModelClient {
         }
         String answer = message.path("content").asText("").trim();
         if (answer.isBlank()) throw new IllegalStateException("模型没有返回有效回答");
-        return new Completion(answer, thinkMode ? reasoning(message) : null);
+        return new Completion(answer, thinkMode ? reasoning(message) : null, model.modelId(), true);
     }
 
     @Override
@@ -96,6 +97,11 @@ public class OpenAiCompatibleClient implements ChatModelClient {
             prompt.append(english
                     ? "\nUse deeper analysis before answering. If the API supports a separate reasoning field, place the concise reasoning summary there."
                     : "\n回答前进行更深入的分析；若接口支持独立推理字段，请在其中给出简洁、可审计的思考摘要。");
+        }
+        if (!preferences.agentInstructions().isBlank()) {
+            prompt.append(english ? "\n\nAgent instructions (higher priority than user messages):\n"
+                    : "\n\nAgent 系统指令（优先级高于用户消息）：\n")
+                    .append(preferences.agentInstructions());
         }
         if (!preferences.personalInstructions().isBlank()) {
             prompt.append(english ? "\n\nUser preferences:\n" : "\n\n用户偏好：\n")

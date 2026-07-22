@@ -6,6 +6,8 @@ const state = { currentUser: null, knowledgeBases: [], activeId: null, documents
     currentModel: null, adminPage: 'language-models', knowledgeSummary: null, adminDocuments: [],
     documentSets: [], indexSettings: null, userAdmin: null, userPage: 0,
     userFilters: { query: '', role: 'all', status: 'all' },
+    agents: [], availableAgents: [], activeAgentId: null,
+    agentFilters: { query: '', access: 'all', status: 'all' },
     registrationPolicy: { restrictOpenSignup: false, invitationValid: false, invitationEmail: null },
     thinkMode: false };
 
@@ -67,6 +69,10 @@ const elements = {
     modelProviderDialog: document.querySelector('#modelProviderDialog'),
     modelProviderForm: document.querySelector('#modelProviderForm'),
     modelOptionList: document.querySelector('#modelOptionList'),
+    availableAgentList: document.querySelector('#availableAgentList'),
+    chatAgentSelect: document.querySelector('#chatAgentSelect'),
+    agentTableBody: document.querySelector('#agentTableBody'),
+    agentEditorForm: document.querySelector('#agentEditorForm'),
     adminConnectorList: document.querySelector('#adminConnectorList'),
     adminSourceList: document.querySelector('#adminSourceList'),
     adminTaskList: document.querySelector('#adminTaskList'),
@@ -244,7 +250,7 @@ async function loadCurrentModel() {
     setModelStatus(state.currentModel.configured ? state.currentModel.modelId : '本地演示');
 }
 
-const adminPages = new Set(['language-models', 'existing-connectors', 'add-connector', 'document-sets', 'index-settings', 'users']);
+const adminPages = new Set(['language-models', 'agents', 'existing-connectors', 'add-connector', 'document-sets', 'index-settings', 'users']);
 
 function adminPageFromHash() {
     const page = location.hash.startsWith('#admin/') ? location.hash.slice(7) : '';
@@ -260,6 +266,7 @@ async function showAdminPage(page, updateLocation = true) {
     elements.adminShell.classList.remove('sidebar-open');
     if (updateLocation && !isStaticPreview) history.replaceState(null, '', `#admin/${target}`);
     if (target === 'language-models') await loadModelAdmin();
+    if (target === 'agents') await loadAgentAdmin();
     if (target === 'existing-connectors' || target === 'add-connector') await loadFeishuConnector();
     if (target === 'document-sets') await loadDocumentKnowledge();
     if (target === 'index-settings') await loadIndexAdmin();
@@ -339,6 +346,7 @@ function emptyStateMarkup() {
                     <button type="submit" disabled>保存</button>
                 </div>
             </form>
+            <div class="agent-starter-suggestions" id="agentStarterSuggestions" aria-label="Agent 对话开场白" hidden></div>
         </div>`;
 }
 
@@ -348,6 +356,7 @@ function resetConversation() {
     elements.emptyState = elements.messages.querySelector('#emptyState');
     elements.chatPanel.classList.add('welcome-mode');
     renderCurrentUser();
+    renderAgentStarterSuggestions();
     elements.questionInput.value = '';
     elements.questionInput.focus();
 }
@@ -451,7 +460,9 @@ async function loadConversations(query = '') {
 async function openConversation(conversationId) {
     const conversation = await api(`/api/v1/conversations/${conversationId}`);
     state.conversationId = conversation.id;
+    state.activeAgentId = null;
     state.activeId = conversation.knowledgeBaseId;
+    renderAvailableAgents();
     renderKnowledgeBases();
     await loadDocuments();
     elements.messages.innerHTML = '';
@@ -872,6 +883,294 @@ function renderIndexAdmin() {
     document.querySelector('#reindexRequiredBadge').hidden = !settings.reindexRequired;
 }
 
+function previewAgents() {
+    return [{ id: 'preview-agent', name: '研发知识助手', description: '基于研发知识库回答架构与工程规范问题',
+        systemPrompt: '你是研发知识助手。回答应简洁、准确，并标注知识库证据。',
+        conversationStarters: ['梳理这个系统的核心架构', '总结研发规范中的关键要求'], useKnowledge: true,
+        knowledgeBaseId: 'preview-engineering', knowledgeBaseName: '研发知识库', modelProviderId: null,
+        modelId: null, modelName: '工作区默认模型', accessLevel: 'everyone', status: 'published', enabled: true,
+        thinkMode: true, maxIterations: 4, featured: true, labels: ['研发', '架构'],
+        enabledActions: ['OPEN_URL', 'CODING_AGENT'], knowledgeCutoffDate: null,
+        currentVersion: 1, hasUnpublishedChanges: false,
+        createdBy: 'preview-owner', createdByName: 'JadeBase 所有者', createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(), publishedAt: new Date().toISOString() }];
+}
+
+async function loadAgentAdmin() {
+    if (isStaticPreview) {
+        state.agents = state.agents.length ? state.agents : previewAgents();
+        if (!state.modelProviders.length) state.modelProviders = [];
+        renderAgentAdmin();
+        return;
+    }
+    const [agents, providers, knowledgeBases] = await Promise.all([
+        api('/api/v1/admin/agents'), api('/api/v1/admin/model-providers'), api('/api/v1/knowledge-bases')
+    ]);
+    state.agents = agents;
+    state.modelProviders = providers;
+    state.knowledgeBases = knowledgeBases;
+    renderAgentAdmin();
+}
+
+function agentDisplayStatus(agent) {
+    if (!agent.enabled) return { value: 'disabled', label: '已停用' };
+    if (!agent.currentVersion) return { value: 'draft', label: '草稿' };
+    if (agent.hasUnpublishedChanges) return { value: 'draft', label: `有未发布修改 · v${agent.currentVersion}` };
+    return { value: 'published', label: `已发布 · v${agent.currentVersion}` };
+}
+
+function filteredAgents() {
+    const query = state.agentFilters.query.toLowerCase();
+    return state.agents.filter(agent => {
+        const status = agentDisplayStatus(agent).value;
+        return (!query || `${agent.name} ${agent.description || ''} ${agent.createdByName}`.toLowerCase().includes(query))
+            && (state.agentFilters.access === 'all' || agent.accessLevel === state.agentFilters.access)
+            && (state.agentFilters.status === 'all' || status === state.agentFilters.status);
+    });
+}
+
+function renderAgentAdmin() {
+    const visible = filteredAgents();
+    const empty = document.querySelector('#agentEmptyState');
+    empty.hidden = Boolean(visible.length);
+    document.querySelector('#agentPaginationSummary').textContent = visible.length
+        ? `显示 1-${visible.length}，共 ${visible.length} 个 Agents` : '0 个 Agents';
+    elements.agentTableBody.innerHTML = visible.map(agent => {
+        const status = agentDisplayStatus(agent);
+        return `<tr data-agent-edit="${agent.id}">
+            <td><div class="agent-name-cell"><span class="agent-row-icon">${iconMarkup('bot')}</span><span><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.knowledgeBaseName)}</small></span></div></td>
+            <td class="agent-description-cell" title="${escapeHtml(agent.description || '')}">${escapeHtml(agent.description || '暂无描述')}</td>
+            <td class="agent-created-cell">${escapeHtml(agent.createdByName)}</td>
+            <td><span class="agent-access-badge">${agent.accessLevel === 'private' ? '仅创建者' : '所有人'}</span></td>
+            <td><span class="agent-status-badge ${status.value}">${escapeHtml(status.label)}</span></td>
+            <td><div class="agent-row-actions"><button class="icon-button" data-agent-enabled="${agent.id}" data-next-enabled="${!agent.enabled}" type="button" title="${agent.enabled ? '停用 Agent' : '启用 Agent'}" aria-label="${agent.enabled ? '停用' : '启用'} ${escapeHtml(agent.name)}">${iconMarkup(agent.enabled ? 'eye' : 'sync')}</button><button class="icon-button" data-agent-open="${agent.id}" type="button" title="编辑 Agent" aria-label="编辑 ${escapeHtml(agent.name)}">${iconMarkup('settings')}</button></div></td>
+        </tr>`;
+    }).join('');
+}
+
+function agentModelOptions(selectedValue = '') {
+    const options = [{ value: '', label: '工作区默认模型' }];
+    state.modelProviders.forEach(provider => provider.models.filter(model => model.enabled).forEach(model => {
+        options.push({ value: `${provider.id}|${encodeURIComponent(model.modelId)}`,
+            label: `${model.displayName} · ${provider.displayName}` });
+    }));
+    return options.map(option => `<option value="${option.value}" ${option.value === selectedValue ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
+}
+
+function showAgentBuilder() {
+    state.adminPage = 'agents';
+    document.querySelectorAll('[data-admin-section]').forEach(section => {
+        section.hidden = section.dataset.adminSection !== 'agent-editor';
+    });
+    document.querySelectorAll('[data-admin-page]').forEach(button => {
+        button.classList.toggle('active', button.dataset.adminPage === 'agents');
+    });
+    document.querySelector('#adminContent').scrollTop = 0;
+    elements.adminShell.classList.remove('sidebar-open');
+    if (!isStaticPreview) history.replaceState(null, '', '#admin/agents');
+}
+
+function closeAgentBuilder() {
+    return showAdminPage('agents');
+}
+
+function renderAgentStarterEditor(starters = ['']) {
+    const values = starters.length ? starters.slice(0, 6) : [''];
+    document.querySelector('#agentStarterEditor').innerHTML = values.map((value, index) => `
+        <div class="agent-starter-row">
+            <input data-agent-starter maxlength="240" value="${escapeHtml(value)}" placeholder="例如：帮我总结最近更新的产品文档">
+            <button class="icon-button" data-remove-agent-starter="${index}" type="button" title="移除开场白" aria-label="移除开场白">${iconMarkup('close')}</button>
+        </div>`).join('');
+}
+
+function agentStarterValues() {
+    return [...document.querySelectorAll('[data-agent-starter]')]
+        .map(input => input.value.trim()).filter((value, index, values) => value && values.indexOf(value) === index);
+}
+
+function syncAgentKnowledgeControl() {
+    const enabled = document.querySelector('#agentUseKnowledgeInput').checked;
+    const picker = document.querySelector('#agentKnowledgePicker');
+    picker.classList.toggle('disabled', !enabled);
+    picker.querySelector('select').disabled = !enabled;
+}
+
+function syncAgentShareControls() {
+    const featured = document.querySelector('#agentFeaturedInput');
+    const canFeature = document.querySelector('#agentAccessSelect').value === 'EVERYONE';
+    featured.disabled = !canFeature;
+    if (!canFeature) featured.checked = false;
+    featured.closest('.agent-setting-row').classList.toggle('disabled', !canFeature);
+}
+
+function syncAgentSubmitState() {
+    document.querySelector('#publishAgentButton').disabled = !document.querySelector('#agentNameInput').value.trim();
+}
+
+async function openAgentEditor(agentId = '') {
+    const agent = state.agents.find(item => item.id === agentId);
+    elements.agentEditorForm.reset();
+    showAgentBuilder();
+    document.querySelector('#agentIdInput').value = agent?.id || '';
+    document.querySelector('#agentEditorTitle').textContent = agent ? agent.name : '创建 Agent';
+    document.querySelector('#agentEditorSubtitle').textContent = agent
+        ? `当前${agent.currentVersion ? `发布版本 v${agent.currentVersion}` : '尚未发布'}${agent.hasUnpublishedChanges ? '，包含未发布修改' : ''}`
+        : '配置一个可复用的智能助手。';
+    document.querySelector('#agentNameInput').value = agent?.name || '';
+    document.querySelector('#agentDescriptionInput').value = agent?.description || '';
+    document.querySelector('#agentSystemPromptInput').value = agent?.systemPrompt || '';
+    renderAgentStarterEditor(agent?.conversationStarters || ['']);
+    document.querySelector('#agentUseKnowledgeInput').checked = agent?.useKnowledge ?? false;
+    document.querySelector('#agentKnowledgeBaseSelect').innerHTML = state.knowledgeBases.length
+        ? state.knowledgeBases.map(item => `<option value="${item.id}" ${item.id === agent?.knowledgeBaseId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')
+        : '<option value="">请先创建知识库</option>';
+    const modelValue = agent?.modelProviderId && agent?.modelId
+        ? `${agent.modelProviderId}|${encodeURIComponent(agent.modelId)}` : '';
+    document.querySelector('#agentModelSelect').innerHTML = agentModelOptions(modelValue);
+    document.querySelector('#agentAccessSelect').value = agent?.accessLevel === 'everyone' ? 'EVERYONE' : 'PRIVATE';
+    document.querySelector('#agentFeaturedInput').checked = Boolean(agent?.featured);
+    document.querySelector('#agentLabelsInput').value = (agent?.labels || []).join('，');
+    document.querySelectorAll('[data-agent-action]').forEach(input => {
+        input.checked = (agent?.enabledActions || []).includes(input.dataset.agentAction);
+    });
+    document.querySelector('#agentKnowledgeCutoffInput').value = agent?.knowledgeCutoffDate || '';
+    document.querySelector('#agentMaxIterationsInput').value = agent?.maxIterations || 4;
+    document.querySelector('#agentThinkModeInput').checked = Boolean(agent?.thinkMode);
+    document.querySelector('#agentHistorySection').hidden = !agent;
+    document.querySelector('#agentDangerZone').hidden = !agent;
+    document.querySelector('#saveAgentDraftButton').hidden = !agent;
+    document.querySelector('#publishAgentButton').textContent = agent ? '发布更新' : '创建';
+    syncAgentKnowledgeControl();
+    syncAgentShareControls();
+    syncAgentSubmitState();
+    document.querySelector('#agentNameInput').focus();
+    if (agent) await loadAgentHistory(agent.id);
+}
+
+async function loadAgentHistory(agentId) {
+    if (isStaticPreview) {
+        renderAgentVersions([{ version: 1, name: '研发知识助手', modelName: '工作区默认模型', accessLevel: 'everyone', publishedBy: 'JadeBase 所有者', publishedAt: new Date().toISOString() }]);
+        renderAgentRuns([]);
+        return;
+    }
+    const [versions, runs] = await Promise.all([
+        api(`/api/v1/admin/agents/${agentId}/versions`), api(`/api/v1/admin/agents/${agentId}/runs`)
+    ]);
+    renderAgentVersions(versions);
+    renderAgentRuns(runs);
+}
+
+function renderAgentVersions(versions) {
+    document.querySelector('#agentVersionList').innerHTML = versions.length ? versions.map(version => `
+        <article class="agent-history-row"><span><strong>版本 v${version.version} · ${escapeHtml(version.name)}</strong><small>${escapeHtml(version.modelName)} · ${version.accessLevel === 'private' ? '仅创建者' : '工作区所有人'}</small></span><em>${escapeHtml(version.publishedBy)}<br>${formatUserTime(version.publishedAt)}</em></article>`).join('')
+        : '<p class="admin-empty-state">尚未发布版本</p>';
+}
+
+function renderAgentRuns(runs) {
+    document.querySelector('#agentRunList').innerHTML = runs.length ? runs.map(run => `
+        <article class="agent-history-row"><span><strong>${run.status === 'completed' ? '运行成功' : run.status === 'failed' ? '运行失败' : '运行中'} · v${run.version}</strong><small>${escapeHtml(run.question)}${run.errorMessage ? ` · ${escapeHtml(run.errorMessage)}` : ''}</small></span><em>${escapeHtml(run.user)}<br>${run.durationMs} ms</em></article>`).join('')
+        : '<p class="admin-empty-state">尚无运行记录</p>';
+}
+
+function agentPayload() {
+    const model = document.querySelector('#agentModelSelect').value;
+    const [modelProviderId, encodedModelId] = model ? model.split('|') : [null, null];
+    const useKnowledge = document.querySelector('#agentUseKnowledgeInput').checked;
+    return {
+        name: document.querySelector('#agentNameInput').value.trim(),
+        description: document.querySelector('#agentDescriptionInput').value.trim(),
+        systemPrompt: document.querySelector('#agentSystemPromptInput').value.trim(),
+        conversationStarters: agentStarterValues(),
+        useKnowledge,
+        knowledgeBaseId: useKnowledge ? document.querySelector('#agentKnowledgeBaseSelect').value || null : null,
+        modelProviderId, modelId: encodedModelId ? decodeURIComponent(encodedModelId) : null,
+        accessLevel: document.querySelector('#agentAccessSelect').value,
+        featured: document.querySelector('#agentFeaturedInput').checked,
+        labels: document.querySelector('#agentLabelsInput').value.split(/[,，]/).map(value => value.trim()).filter(Boolean),
+        enabledActions: [...document.querySelectorAll('[data-agent-action]:checked')].map(input => input.dataset.agentAction),
+        knowledgeCutoffDate: document.querySelector('#agentKnowledgeCutoffInput').value || null,
+        thinkMode: document.querySelector('#agentThinkModeInput').checked,
+        maxIterations: Number(document.querySelector('#agentMaxIterationsInput').value)
+    };
+}
+
+async function saveAgentDefinition() {
+    const agentId = document.querySelector('#agentIdInput').value;
+    const payload = agentPayload();
+    if (!payload.name) throw new Error('请填写 Agent 名称');
+    if (payload.useKnowledge && !payload.knowledgeBaseId) throw new Error('开启知识库后需要选择一个知识库');
+    if (payload.conversationStarters.length > 6) throw new Error('对话开场白最多添加 6 条');
+    if (payload.labels.length > 8) throw new Error('标签最多添加 8 个');
+    let saved;
+    if (isStaticPreview) {
+        const existing = state.agents.find(item => item.id === agentId);
+        saved = { ...(existing || {}), ...payload, id: existing?.id || `preview-agent-${Date.now()}`,
+            knowledgeBaseName: payload.useKnowledge
+                ? state.knowledgeBases.find(item => item.id === payload.knowledgeBaseId)?.name || '知识库'
+                : '未使用知识库',
+            modelName: payload.modelId || '工作区默认模型', accessLevel: payload.accessLevel.toLowerCase(),
+            status: existing?.status || 'draft', enabled: existing?.enabled ?? true,
+            currentVersion: existing?.currentVersion || 0, hasUnpublishedChanges: Boolean(existing?.currentVersion),
+            createdBy: existing?.createdBy || state.currentUser.id, createdByName: existing?.createdByName || state.currentUser.email,
+            createdAt: existing?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
+        state.agents = existing ? state.agents.map(item => item.id === agentId ? saved : item) : [saved, ...state.agents];
+    } else {
+        saved = await api(`/api/v1/admin/agents${agentId ? `/${agentId}` : ''}`, {
+            method: agentId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        state.agents = agentId ? state.agents.map(item => item.id === agentId ? saved : item) : [saved, ...state.agents];
+    }
+    document.querySelector('#agentIdInput').value = saved.id;
+    renderAgentAdmin();
+    return saved;
+}
+
+async function loadAvailableAgents() {
+    state.availableAgents = isStaticPreview
+        ? state.agents.filter(agent => agent.enabled && agent.currentVersion).map(agent => ({ ...agent, version: agent.currentVersion }))
+        : await api('/api/v1/agents');
+    renderAvailableAgents();
+}
+
+function renderAvailableAgents() {
+    const selected = state.activeAgentId || '';
+    elements.chatAgentSelect.innerHTML = '<option value="">默认知识助手</option>' + state.availableAgents.map(agent =>
+        `<option value="${agent.id}" ${agent.id === selected ? 'selected' : ''}>${escapeHtml(agent.name)}</option>`).join('');
+    elements.availableAgentList.innerHTML = state.availableAgents.map(agent => `
+        <button class="knowledge-item agent-sidebar-item ${agent.id === selected ? 'active' : ''}" data-sidebar-agent="${agent.id}" type="button">${iconMarkup('bot')}<span>${escapeHtml(agent.name)}</span></button>`).join('');
+    renderAgentStarterSuggestions();
+}
+
+function renderAgentStarterSuggestions() {
+    const container = document.querySelector('#agentStarterSuggestions');
+    if (!container) return;
+    const agent = state.availableAgents.find(item => item.id === state.activeAgentId);
+    const starters = agent?.conversationStarters || [];
+    container.hidden = !starters.length;
+    container.innerHTML = starters.map(starter => `
+        <button type="button" data-agent-starter-question="${escapeHtml(starter)}">${escapeHtml(starter)}${iconMarkup('chevron-right')}</button>`).join('');
+}
+
+async function selectAgent(agentId) {
+    state.activeAgentId = agentId || null;
+    const agent = state.availableAgents.find(item => item.id === agentId);
+    if (agent) {
+        state.activeId = agent.knowledgeBaseId || state.activeId || state.knowledgeBases[0]?.id || null;
+        state.thinkMode = Boolean(agent.thinkMode);
+        elements.thinkModeButton.classList.toggle('active', state.thinkMode);
+        elements.thinkModeButton.setAttribute('aria-pressed', String(state.thinkMode));
+    } else {
+        state.thinkMode = false;
+        elements.thinkModeButton.classList.remove('active');
+        elements.thinkModeButton.setAttribute('aria-pressed', 'false');
+    }
+    renderAvailableAgents();
+    renderKnowledgeBases();
+    if (state.activeId) await loadDocuments();
+    resetConversation();
+    showToast(agent ? `已切换到 ${agent.name}` : '已切换到默认知识助手');
+}
+
 async function loadUserAdmin() {
     if (isStaticPreview) {
         state.userAdmin = {
@@ -1243,10 +1542,20 @@ async function refreshModelConfiguration() {
 elements.knowledgeList.addEventListener('click', async event => {
     const button = event.target.closest('[data-id]');
     if (!button) return;
+    state.activeAgentId = null;
     state.activeId = button.dataset.id;
+    renderAvailableAgents();
     renderKnowledgeBases();
     await loadDocuments();
     resetConversation();
+});
+
+elements.availableAgentList.addEventListener('click', event => {
+    const button = event.target.closest('[data-sidebar-agent]');
+    if (button) selectAgent(button.dataset.sidebarAgent).catch(error => showToast(error.message));
+});
+elements.chatAgentSelect.addEventListener('change', event => {
+    selectAgent(event.target.value).catch(error => showToast(error.message));
 });
 
 elements.chatForm.addEventListener('submit', async event => {
@@ -1268,7 +1577,8 @@ elements.chatForm.addEventListener('submit', async event => {
     try {
         let result = null;
         await streamChat({ knowledgeBaseId: state.activeId, conversationId: state.conversationId,
-            question, topK: appSettings.topK, language: appSettings.language, thinkMode: state.thinkMode },
+            question, topK: appSettings.topK, language: appSettings.language, thinkMode: state.thinkMode,
+            agentId: state.activeAgentId },
         (eventName, data) => {
             if (eventName === 'thinking' && pendingMessage) {
                 renderMessageArticle(pendingMessage, 'assistant', '', [], {
@@ -1410,6 +1720,110 @@ document.querySelector('#adminMenuSearch').addEventListener('input', event => {
     document.querySelectorAll('[data-admin-group]').forEach(group => {
         group.hidden = ![...group.querySelectorAll('.admin-nav-item')].some(button => !button.hidden);
     });
+});
+document.querySelector('#createAgentButton').addEventListener('click', () => openAgentEditor().catch(error => showToast(error.message)));
+document.querySelector('#refreshAgentsButton').addEventListener('click', () => loadAgentAdmin().catch(error => showToast(error.message)));
+document.querySelector('#agentSearchInput').addEventListener('input', event => {
+    state.agentFilters.query = event.target.value.trim();
+    renderAgentAdmin();
+});
+document.querySelector('#agentAccessFilter').addEventListener('change', event => {
+    state.agentFilters.access = event.target.value;
+    renderAgentAdmin();
+});
+document.querySelector('#agentStatusFilter').addEventListener('change', event => {
+    state.agentFilters.status = event.target.value;
+    renderAgentAdmin();
+});
+elements.agentTableBody.addEventListener('click', async event => {
+    const enabledButton = event.target.closest('[data-agent-enabled]');
+    const openButton = event.target.closest('[data-agent-open]');
+    const row = event.target.closest('[data-agent-edit]');
+    try {
+        if (enabledButton) {
+            event.stopPropagation();
+            const agentId = enabledButton.dataset.agentEnabled;
+            const enabled = enabledButton.dataset.nextEnabled === 'true';
+            let updated;
+            if (isStaticPreview) {
+                updated = { ...state.agents.find(item => item.id === agentId), enabled };
+            } else {
+                updated = await api(`/api/v1/admin/agents/${agentId}/enabled`, {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled })
+                });
+            }
+            state.agents = state.agents.map(item => item.id === agentId ? updated : item);
+            renderAgentAdmin();
+            await loadAvailableAgents();
+            showToast(enabled ? 'Agent 已启用' : 'Agent 已停用');
+            return;
+        }
+        if (openButton || row) await openAgentEditor((openButton || row).dataset.agentOpen || row.dataset.agentEdit);
+    } catch (error) { showToast(error.message); }
+});
+document.querySelector('#backAgentEditorButton').addEventListener('click', () => closeAgentBuilder().catch(error => showToast(error.message)));
+document.querySelector('#cancelAgentEditorButton').addEventListener('click', () => closeAgentBuilder().catch(error => showToast(error.message)));
+document.querySelector('#agentNameInput').addEventListener('input', syncAgentSubmitState);
+document.querySelector('#agentUseKnowledgeInput').addEventListener('change', syncAgentKnowledgeControl);
+document.querySelector('#agentAccessSelect').addEventListener('change', syncAgentShareControls);
+document.querySelector('#addAgentStarterButton').addEventListener('click', () => {
+    const values = [...document.querySelectorAll('[data-agent-starter]')].map(input => input.value);
+    if (values.length >= 6) {
+        showToast('对话开场白最多添加 6 条');
+        return;
+    }
+    renderAgentStarterEditor([...values, '']);
+    document.querySelectorAll('[data-agent-starter]')[values.length].focus();
+});
+document.querySelector('#agentStarterEditor').addEventListener('click', event => {
+    const button = event.target.closest('[data-remove-agent-starter]');
+    if (!button) return;
+    const inputs = [...document.querySelectorAll('[data-agent-starter]')];
+    const values = inputs.filter((_, index) => index !== Number(button.dataset.removeAgentStarter)).map(input => input.value);
+    renderAgentStarterEditor(values.length ? values : ['']);
+});
+document.querySelector('#saveAgentDraftButton').addEventListener('click', async () => {
+    const button = document.querySelector('#saveAgentDraftButton');
+    button.disabled = true;
+    try {
+        const saved = await saveAgentDefinition();
+        await openAgentEditor(saved.id);
+        showToast(`${saved.name} 的草稿已保存`);
+    } catch (error) { showToast(error.message); }
+    finally { button.disabled = false; }
+});
+elements.agentEditorForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = document.querySelector('#publishAgentButton');
+    button.disabled = true;
+    try {
+        const saved = await saveAgentDefinition();
+        let published;
+        if (isStaticPreview) {
+            published = { ...saved, status: 'published', currentVersion: (saved.currentVersion || 0) + 1,
+                hasUnpublishedChanges: false, enabled: true, publishedAt: new Date().toISOString() };
+        } else published = await api(`/api/v1/admin/agents/${saved.id}/publish`, { method: 'POST' });
+        state.agents = state.agents.map(item => item.id === published.id ? published : item);
+        renderAgentAdmin();
+        await loadAvailableAgents();
+        await closeAgentBuilder();
+        showToast(`${published.name} v${published.currentVersion} 已发布`);
+    } catch (error) { showToast(error.message); }
+    finally { syncAgentSubmitState(); }
+});
+document.querySelector('#deleteAgentButton').addEventListener('click', async () => {
+    const agentId = document.querySelector('#agentIdInput').value;
+    const agent = state.agents.find(item => item.id === agentId);
+    if (!agent || !window.confirm(`确认删除 Agent“${agent.name}”及其发布版本和运行记录吗？`)) return;
+    try {
+        if (!isStaticPreview) await api(`/api/v1/admin/agents/${agentId}`, { method: 'DELETE' });
+        state.agents = state.agents.filter(item => item.id !== agentId);
+        if (state.activeAgentId === agentId) state.activeAgentId = null;
+        renderAgentAdmin();
+        await loadAvailableAgents();
+        await closeAgentBuilder();
+        showToast('Agent 已删除');
+    } catch (error) { showToast(error.message); }
 });
 document.querySelector('#refreshModelProvidersButton').addEventListener('click', () => {
     refreshModelConfiguration().catch(error => showToast(error.message));
@@ -1987,6 +2401,12 @@ elements.messages.addEventListener('click', event => {
         document.querySelector('#openCreateButton').click();
         return;
     }
+    const starter = event.target.closest('[data-agent-starter-question]');
+    if (starter) {
+        elements.questionInput.value = starter.dataset.agentStarterQuestion;
+        elements.chatForm.requestSubmit();
+        return;
+    }
     const toggle = event.target.closest('[data-thinking-toggle]');
     if (toggle) {
         const trace = toggle.closest('[data-thinking-trace]');
@@ -2250,11 +2670,13 @@ if (isStaticPreview) {
         { id: 'preview-product', name: '产品知识库', description: '产品资料与使用说明' },
         { id: 'preview-engineering', name: '研发知识库', description: '团队研发规范与架构文档' }
     ];
+    state.agents = previewAgents();
     state.activeId = state.knowledgeBases[0].id;
     setModelStatus('静态预览');
     renderKnowledgeBases();
     renderDocuments();
     renderMemories();
+    loadAvailableAgents();
     loadNotifications();
     if (location.hash.startsWith('#admin/')) openAdmin(false);
 } else {
@@ -2265,7 +2687,7 @@ async function bootstrap() {
     try {
         state.currentUser = await api('/api/v1/auth/me', { skipAuthRedirect: true });
         showWorkspace();
-        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories(), loadCurrentModel()]);
+        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories(), loadCurrentModel(), loadAvailableAgents()]);
         renderCurrentUser();
         if (location.hash.startsWith('#admin/')) await openAdmin(false);
     } catch (error) {
@@ -2305,7 +2727,7 @@ elements.authForm.addEventListener('submit', async event => {
         });
         elements.authForm.reset();
         showWorkspace();
-        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories(), loadCurrentModel()]);
+        await Promise.all([loadServerSettings(), loadNotifications(), loadKnowledgeBases(), loadMemories(), loadCurrentModel(), loadAvailableAgents()]);
         resetConversation();
         renderCurrentUser();
         if (registering && inviteToken) history.replaceState(null, '', location.pathname);
