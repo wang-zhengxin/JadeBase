@@ -12,6 +12,7 @@ const state = { currentUser: null, knowledgeBases: [], activeId: null, documents
     thinkMode: false };
 
 const inviteToken = new URLSearchParams(location.search).get('invite') || '';
+let searchActiveIndex = 0;
 
 function iconMarkup(name, className = 'ui-icon') {
     return `<svg class="${className}" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
@@ -433,28 +434,78 @@ function formatConversationTime(value) {
     }).format(new Date(value));
 }
 
-function renderConversations() {
-    elements.historyEmpty.hidden = state.conversations.length > 0;
-    elements.historyList.innerHTML = state.conversations.map(item => `
-        <div class="history-item">
-            <button class="history-open" type="button" data-conversation-open="${item.id}">
-                <strong>${escapeHtml(item.title)}</strong>
-                <small>${item.messageCount} 条消息 · ${formatConversationTime(item.updatedAt)}</small>
-            </button>
-            <button class="history-delete" type="button" data-conversation-delete="${item.id}" aria-label="删除对话">
-                ${iconMarkup('close')}
-            </button>
-        </div>`).join('');
+function searchResultItem(kind, id, icon, title, detail, meta, knowledgeBaseId = '') {
+    return `<button class="global-search-result" type="button" role="option" aria-selected="false"
+        data-search-kind="${kind}" data-search-id="${id}" data-search-knowledge-base="${knowledgeBaseId}">
+        <span class="global-search-result-icon">${iconMarkup(icon)}</span>
+        <span class="global-search-result-copy">
+            <strong>${escapeHtml(title)}</strong>
+            ${detail ? `<small>${escapeHtml(detail)}</small>` : ''}
+        </span>
+        ${meta ? `<span class="global-search-result-meta">${escapeHtml(meta)}</span>` : ''}
+    </button>`;
 }
 
-async function loadConversations(query = '') {
-    if (isStaticPreview) {
-        state.conversations = [];
-    } else {
-        const suffix = query.trim() ? `?query=${encodeURIComponent(query.trim())}` : '';
-        state.conversations = await api(`/api/v1/conversations${suffix}`);
+function searchSection(title, items) {
+    if (!items.length) return '';
+    return `<section class="global-search-section"><h3>${escapeHtml(title)}</h3>${items.join('')}</section>`;
+}
+
+function renderGlobalSearch(result) {
+    const sections = [
+        searchSection('', [searchResultItem('new', 'new', 'edit', '新对话', '', '创建')]),
+        searchSection('最近对话', result.conversations.map(item => searchResultItem(
+            'conversation', item.id, 'message', item.title,
+            `${item.messageCount} 条消息`, formatConversationTime(item.updatedAt), item.knowledgeBaseId))),
+        searchSection('知识库', result.knowledgeBases.map(item => searchResultItem(
+            'knowledge', item.id, 'folder', item.name, item.description || '暂无描述', '知识库', item.id))),
+        searchSection('文档', result.documents.map(item => searchResultItem(
+            'document', item.id, 'files', item.name, item.knowledgeBaseName,
+            statusText(item.status.toUpperCase()), item.knowledgeBaseId))),
+        searchSection('Agents', result.agents.map(item => searchResultItem(
+            'agent', item.id, 'bot', item.name, item.description || item.knowledgeBaseName,
+            item.thinkMode ? '思考模式' : 'Agent', item.knowledgeBaseId)))
+    ].join('');
+    const resultCount = result.conversations.length + result.knowledgeBases.length
+        + result.documents.length + result.agents.length;
+    elements.historyEmpty.hidden = resultCount > 0 || !result.query;
+    elements.historyList.innerHTML = sections;
+    searchActiveIndex = 0;
+    updateSearchSelection();
+}
+
+function updateSearchSelection() {
+    const items = [...elements.historyList.querySelectorAll('.global-search-result')];
+    if (!items.length) return;
+    searchActiveIndex = Math.max(0, Math.min(searchActiveIndex, items.length - 1));
+    items.forEach((item, index) => {
+        const selected = index === searchActiveIndex;
+        item.classList.toggle('active', selected);
+        item.setAttribute('aria-selected', String(selected));
+    });
+    items[searchActiveIndex].scrollIntoView({ block: 'nearest' });
+}
+
+async function loadGlobalSearch(query = '') {
+    elements.historyList.setAttribute('aria-busy', 'true');
+    try {
+        const result = isStaticPreview
+            ? {
+                query: query.trim(),
+                conversations: [],
+                knowledgeBases: state.knowledgeBases.filter(item =>
+                    !query.trim() || `${item.name} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6),
+                documents: state.documents.filter(item =>
+                    !query.trim() || item.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
+                    .map(item => ({ ...item, knowledgeBaseName: state.knowledgeBases.find(kb => kb.id === item.knowledgeBaseId)?.name || '知识库' })),
+                agents: state.availableAgents.filter(item =>
+                    !query.trim() || `${item.name} ${item.description || ''}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
+            }
+            : await api(`/api/v1/search?query=${encodeURIComponent(query.trim())}`);
+        renderGlobalSearch(result);
+    } finally {
+        elements.historyList.removeAttribute('aria-busy');
     }
-    renderConversations();
 }
 
 async function openConversation(conversationId) {
@@ -547,7 +598,7 @@ function renderDocuments() {
         return;
     }
     elements.documentList.innerHTML = state.documents.map(item => `
-        <article class="document-item">
+        <article class="document-item" data-document-id="${item.id}">
             <div class="document-row">
                 ${item.sourceUrl ? `<a class="document-name source-document-name" href="${escapeHtml(safeHttpUrl(item.sourceUrl))}" target="_blank" rel="noopener noreferrer" title="在飞书中打开 ${escapeHtml(item.name)}">${escapeHtml(item.name)}</a>`
                     : `<div class="document-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>`}
@@ -1171,6 +1222,48 @@ async function selectAgent(agentId) {
     showToast(agent ? `已切换到 ${agent.name}` : '已切换到默认知识助手');
 }
 
+async function selectKnowledgeBase(knowledgeBaseId, documentId = null) {
+    state.activeAgentId = null;
+    state.activeId = knowledgeBaseId;
+    renderAvailableAgents();
+    renderKnowledgeBases();
+    await loadDocuments();
+    resetConversation();
+    if (documentId) {
+        const documentElement = elements.documentList.querySelector(`[data-document-id="${documentId}"]`);
+        if (documentElement) {
+            documentElement.classList.add('search-located');
+            documentElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            window.setTimeout(() => documentElement.classList.remove('search-located'), 1800);
+        }
+    }
+}
+
+async function openSearchResult(button) {
+    const kind = button.dataset.searchKind;
+    const id = button.dataset.searchId;
+    const knowledgeBaseId = button.dataset.searchKnowledgeBase;
+    if (kind === 'new') {
+        elements.historyDialog.close();
+        resetConversation();
+        return;
+    }
+    if (kind === 'conversation') {
+        await openConversation(id);
+        return;
+    }
+    elements.historyDialog.close();
+    if (kind === 'knowledge') {
+        await selectKnowledgeBase(id);
+        showToast('已切换知识库');
+    } else if (kind === 'document') {
+        await selectKnowledgeBase(knowledgeBaseId, id);
+        showToast('已定位到文档');
+    } else if (kind === 'agent') {
+        await selectAgent(id);
+    }
+}
+
 async function loadUserAdmin() {
     if (isStaticPreview) {
         state.userAdmin = {
@@ -1542,12 +1635,7 @@ async function refreshModelConfiguration() {
 elements.knowledgeList.addEventListener('click', async event => {
     const button = event.target.closest('[data-id]');
     if (!button) return;
-    state.activeAgentId = null;
-    state.activeId = button.dataset.id;
-    renderAvailableAgents();
-    renderKnowledgeBases();
-    await loadDocuments();
-    resetConversation();
+    await selectKnowledgeBase(button.dataset.id);
 });
 
 elements.availableAgentList.addEventListener('click', event => {
@@ -1667,31 +1755,52 @@ document.querySelector('#closeCreateButton').addEventListener('click', () => ele
 document.querySelector('#cancelCreateButton').addEventListener('click', () => elements.createDialog.close());
 elements.nameInput.addEventListener('input', syncCreateButton);
 document.querySelector('#newSessionButton').addEventListener('click', resetConversation);
-document.querySelector('#searchChatsButton').addEventListener('click', async () => {
+async function openGlobalSearch() {
     elements.historySearchInput.value = '';
-    elements.historyDialog.showModal();
+    if (!elements.historyDialog.open) elements.historyDialog.showModal();
     elements.historySearchInput.focus();
-    try { await loadConversations(); } catch (error) { showToast(error.message); }
+    await loadGlobalSearch();
+}
+
+document.querySelector('#searchChatsButton').addEventListener('click', () => {
+    openGlobalSearch().catch(error => showToast(error.message));
 });
 document.querySelector('#closeHistoryButton').addEventListener('click', () => elements.historyDialog.close());
+window.addEventListener('keydown', event => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k'
+            && !elements.appShell.hidden && elements.adminShell.hidden) {
+        event.preventDefault();
+        openGlobalSearch().catch(error => showToast(error.message));
+    }
+});
 elements.historySearchInput.addEventListener('input', () => {
     window.clearTimeout(elements.historySearchInput.searchTimer);
     elements.historySearchInput.searchTimer = window.setTimeout(() => {
-        loadConversations(elements.historySearchInput.value).catch(error => showToast(error.message));
-    }, 250);
+        loadGlobalSearch(elements.historySearchInput.value).catch(error => showToast(error.message));
+    }, 180);
 });
-elements.historyList.addEventListener('click', async event => {
-    const openButton = event.target.closest('[data-conversation-open]');
-    const deleteButton = event.target.closest('[data-conversation-delete]');
-    try {
-        if (openButton) await openConversation(openButton.dataset.conversationOpen);
-        if (deleteButton && window.confirm('确认删除这个历史对话吗？')) {
-            await api(`/api/v1/conversations/${deleteButton.dataset.conversationDelete}`, { method: 'DELETE' });
-            if (state.conversationId === deleteButton.dataset.conversationDelete) resetConversation();
-            await loadConversations(elements.historySearchInput.value);
-            showToast('历史对话已删除');
-        }
-    } catch (error) { showToast(error.message); }
+elements.historySearchInput.addEventListener('keydown', event => {
+    const items = [...elements.historyList.querySelectorAll('.global-search-result')];
+    if (!items.length) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        searchActiveIndex = (searchActiveIndex + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        updateSearchSelection();
+    } else if (event.key === 'Enter') {
+        event.preventDefault();
+        openSearchResult(items[searchActiveIndex]).catch(error => showToast(error.message));
+    }
+});
+elements.historyList.addEventListener('mousemove', event => {
+    const button = event.target.closest('.global-search-result');
+    if (!button) return;
+    const items = [...elements.historyList.querySelectorAll('.global-search-result')];
+    searchActiveIndex = items.indexOf(button);
+    updateSearchSelection();
+});
+elements.historyList.addEventListener('click', event => {
+    const button = event.target.closest('.global-search-result');
+    if (button) openSearchResult(button).catch(error => showToast(error.message));
 });
 document.querySelector('#retrievalSettingsButton').addEventListener('click', () => showToast('混合检索 · 向量 65% · 关键词 35%'));
 document.querySelector('#sidebarToggle').addEventListener('click', event => {

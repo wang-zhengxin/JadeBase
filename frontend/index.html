@@ -85,7 +85,7 @@
 
         <nav class="primary-nav" aria-label="主要功能">
             <button class="nav-item active" id="newSessionButton" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-edit"/></svg> 新对话</button>
-            <button class="nav-item" id="searchChatsButton" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg> 搜索对话</button>
+            <button class="nav-item" id="searchChatsButton" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg> 搜索</button>
         </nav>
 
         <section class="sidebar-section agent-panel">
@@ -763,20 +763,20 @@
     </form>
 </dialog>
 
-<dialog class="history-dialog" id="historyDialog">
-    <div class="history-dialog-header">
-        <div>
-            <svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg>
-            <h2>搜索对话</h2>
-        </div>
-        <button class="history-close" id="closeHistoryButton" type="button" aria-label="关闭历史对话"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
-    </div>
-    <label class="history-search" for="historySearchInput">
+<dialog class="history-dialog global-search-dialog" id="historyDialog" aria-labelledby="globalSearchTitle">
+    <h2 class="sr-only" id="globalSearchTitle">全局搜索</h2>
+    <div class="global-search-input">
         <svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg>
-        <input id="historySearchInput" autocomplete="off" placeholder="搜索对话标题">
-    </label>
-    <div class="history-list" id="historyList"></div>
-    <p class="history-empty" id="historyEmpty" hidden>还没有历史对话</p>
+        <input id="historySearchInput" aria-label="搜索对话、知识库、文档或 Agent" autocomplete="off" placeholder="搜索对话、知识库、文档或 Agent">
+        <button class="history-close" id="closeHistoryButton" type="button" aria-label="关闭搜索"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+    </div>
+    <div class="global-search-results" id="historyList" role="listbox" aria-live="polite"></div>
+    <p class="history-empty" id="historyEmpty" hidden>没有找到匹配结果</p>
+    <footer class="global-search-footer" aria-hidden="true">
+        <span><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
+        <span><kbd>↵</kbd> 打开</span>
+        <span><kbd>esc</kbd> 关闭</span>
+    </footer>
 </dialog>
 
 <dialog class="create-dialog connector-dialog" id="feishuConnectionDialog">
