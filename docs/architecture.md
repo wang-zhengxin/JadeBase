@@ -10,7 +10,9 @@ flowchart LR
     API --> RAG["RAG 模块"]
     API --> Conversation["Conversation 模块"]
     API --> Workspace["Workspace / Notification 模块"]
+    API --> Models["Model Provider 模块"]
     API --> Feishu["Feishu Connector 模块"]
+    Models --> ModelAPI["国内 / OpenAI 兼容 / 本地模型"]
     Feishu --> OpenAPI["飞书 OpenAPI"]
     Feishu --> Queue
     KB --> Parser["PDF / DOCX / Text 解析"]
@@ -24,6 +26,7 @@ flowchart LR
     RAG --> DB
     Conversation --> DB
     Workspace --> DB
+    Models --> DB
 ```
 
 前端位于仓库根目录 `frontend/`，独立安装、开发和构建。开发环境由 Vite 将同源接口请求
@@ -40,7 +43,9 @@ Spring Boot 只负责 API 和领域逻辑，不再打包浏览器资源。
 | `conversation` | 会话、消息及引用快照持久化与历史检索 |
 | `workspace` | 单工作区资料、外观和回答偏好 |
 | `notification` | 系统通知与已读状态 |
+| `model` | 模型供应商目录、加密凭证、模型发现、连接测试和默认模型路由 |
 | `connector.feishu` | 飞书凭证、内容发现、持久化同步任务、增量映射和退避恢复 |
+| `knowledge.admin` | 文档库存、跨知识库文档集和运行时索引参数 |
 | `common` | 错误处理、初始化数据等横切能力 |
 
 ## 检索策略
@@ -57,7 +62,11 @@ PostgreSQL：384 维向量写入 pgvector 并由 HNSW 检索；分词结果持�
 
 ## 模型适配
 
-聊天和 Embedding 均通过 OpenAI 兼容协议接入，两个端点可以独立配置。回答提示词要求模型只依据召回资料作答，并使用 `[资料N]` 标记引用。
+聊天和 Embedding 均通过 OpenAI 兼容协议接入，两个端点可以独立配置。工作区所有者可在管理
+后台保存多个模型供应商、从 `/models` 发现模型、发送最小 Chat Completions 请求验证连接，并
+切换默认模型。API Key 使用 AES-GCM 加密后写入数据库，运行时优先读取数据库默认模型；没有
+数据库配置时继续使用环境变量，本地开发仍可降级到演示模式。回答提示词要求模型只依据召回
+资料作答，并使用 `[资料N]` 标记引用。
 
 ## 异步索引
 
@@ -65,6 +74,10 @@ PostgreSQL：384 维向量写入 pgvector 并由 HNSW 检索；分词结果持�
 悲观锁领取任务，并通过 `lease_until` 续租；应用退出后，超时租约会自动回到队列。
 分块生成完成后一次性替换旧索引，避免重建失败破坏原有检索结果。进度通过 SSE 推送，
 前端在断线时回退到轮询。原始文件持续保留，以支持模型变更后的重新索引。
+
+分块大小、重叠字符、候选池、RRF 常数、Reranker 和 Query Rewrite 开关保存在
+`index_settings`，索引 Worker 与检索链路每次执行时读取工作区配置。分块变化只标记
+`reindex_required`，避免保存设置时隐式发起大批量任务。
 
 ## 评测与可观测性
 

@@ -32,12 +32,22 @@ public class ConversationService {
     @Transactional
     public UUID recordExchange(UUID knowledgeBaseId, UUID conversationId, String question,
                                String answer, String mode, List<SourceSnapshot> sourceSnapshots) {
+        return recordExchange(knowledgeBaseId, conversationId, question, answer, mode, null, 0, 0,
+                sourceSnapshots);
+    }
+
+    @Transactional
+    public UUID recordExchange(UUID knowledgeBaseId, UUID conversationId, String question,
+                               String answer, String mode, String reasoningContent,
+                               long thinkingDurationMs, int thinkingSteps,
+                               List<SourceSnapshot> sourceSnapshots) {
         Conversation conversation = conversationId == null
                 ? conversations.save(new Conversation(knowledgeBaseId, title(question)))
                 : requireConversation(conversationId, knowledgeBaseId);
         messages.save(new ConversationMessage(conversation.getId(), ConversationMessage.Role.USER, question, null));
         ConversationMessage assistant = messages.save(new ConversationMessage(conversation.getId(),
-                ConversationMessage.Role.ASSISTANT, answer, mode));
+                ConversationMessage.Role.ASSISTANT, answer, mode, reasoningContent,
+                thinkingDurationMs, thinkingSteps));
         for (int i = 0; i < sourceSnapshots.size(); i++) {
             SourceSnapshot source = sourceSnapshots.get(i);
             sources.save(new MessageSource(assistant.getId(), i, source.documentId(), source.documentName(),
@@ -68,6 +78,7 @@ public class ConversationService {
                 .collect(Collectors.groupingBy(MessageSource::getMessageId));
         List<MessageView> views = messageList.stream().map(message -> new MessageView(message.getId(),
                 message.getRole().name().toLowerCase(), message.getContent(), message.getMode(),
+                message.getReasoningContent(), message.getThinkingDurationMs(), message.getThinkingSteps(),
                 message.getCreatedAt(), sourcesByMessage.getOrDefault(message.getId(), List.of()).stream()
                 .map(SourceView::from).toList())).toList();
         return new ConversationDetail(conversation.getId(), conversation.getKnowledgeBaseId(),
@@ -105,7 +116,8 @@ public class ConversationService {
                                       long messageCount, Instant updatedAt) { }
     public record ConversationDetail(UUID id, UUID knowledgeBaseId, String title, Instant createdAt,
                                      Instant updatedAt, List<MessageView> messages) { }
-    public record MessageView(UUID id, String role, String content, String mode, Instant createdAt,
+    public record MessageView(UUID id, String role, String content, String mode, String reasoning,
+                              long thinkingDurationMs, int thinkingSteps, Instant createdAt,
                               List<SourceView> sources) { }
     public record SourceView(UUID documentId, String documentName, int chunkIndex,
                              String snippet, double score) {

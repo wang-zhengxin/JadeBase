@@ -77,6 +77,11 @@ public class WorkspaceSettings {
         this.updatedAt = Instant.now();
     }
 
+    public void updateTopK(int topK) {
+        this.topK = topK;
+        this.updatedAt = Instant.now();
+    }
+
     public Long getId() { return id; }
     public String getProfileName() { return profileName; }
     public String getWorkRole() { return workRole; }

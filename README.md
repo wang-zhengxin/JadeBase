@@ -10,9 +10,14 @@ JadeBase 是面向中国企业的智能搜索与 Agent 平台。第一阶段提�
 - PDF、DOCX、Markdown、TXT、CSV 文本提取
 - 面向中文的重叠分块
 - 关键词与向量混合召回
-- DeepSeek、通义千问等 OpenAI 兼容接口
+- DeepSeek、通义千问、GLM、Kimi、豆包、千帆、硅基流动与 OpenAI 通用接口
+- 管理后台模型发现、连接测试、默认模型切换和加密凭证存储
+- 工作区用户邀请、角色调整、账号停用与受限注册
+- Ollama、vLLM、LocalAI 与 LM Studio 本地模型接入
 - 回答引用与相关度展示
 - 对话、消息与引用来源持久化
+- 深度思考模式、可折叠推理摘要与流式聊天事件
+- Agent 创建、知识库与模型绑定、不可变发布版本和运行审计
 - 服务端工作区设置与通知状态
 - 对话偏好、个人指令与可引用的工作区记忆
 - 邮箱注册登录、BCrypt 密码哈希与可撤销的服务端会话
@@ -88,6 +93,15 @@ POST   /api/v1/knowledge-bases/{id}/documents/{documentId}/reindex
 POST   /api/v1/knowledge-bases/{id}/reindex
 GET    /api/v1/knowledge-bases/{id}/documents/events
 POST   /api/v1/chat
+GET    /api/v1/agents
+GET    /api/v1/admin/agents
+POST   /api/v1/admin/agents
+PUT    /api/v1/admin/agents/{agentId}
+POST   /api/v1/admin/agents/{agentId}/publish
+PATCH  /api/v1/admin/agents/{agentId}/enabled
+GET    /api/v1/admin/agents/{agentId}/versions
+GET    /api/v1/admin/agents/{agentId}/runs
+DELETE /api/v1/admin/agents/{agentId}
 POST   /api/v1/evaluations
 GET    /api/v1/conversations
 GET    /api/v1/conversations/{id}
@@ -115,11 +129,30 @@ POST   /api/v1/connectors/feishu/sources
 POST   /api/v1/connectors/feishu/sources/{id}/sync
 GET    /api/v1/connectors/feishu/sync-tasks
 POST   /api/v1/connectors/feishu/sync-tasks/{id}/retry
+GET    /api/v1/models/current
+GET    /api/v1/admin/model-providers/catalog
+GET    /api/v1/admin/model-providers
+POST   /api/v1/admin/model-providers/discover
+POST   /api/v1/admin/model-providers/test
+POST   /api/v1/admin/model-providers
+PUT    /api/v1/admin/model-providers/{id}
+PUT    /api/v1/admin/model-providers/default
+DELETE /api/v1/admin/model-providers/{id}
+GET    /api/v1/admin/knowledge/summary
+GET    /api/v1/admin/knowledge/documents
+GET    /api/v1/admin/knowledge/document-sets
+POST   /api/v1/admin/knowledge/document-sets
+PUT    /api/v1/admin/knowledge/document-sets/{id}
+DELETE /api/v1/admin/knowledge/document-sets/{id}
+GET    /api/v1/admin/knowledge/index-settings
+PUT    /api/v1/admin/knowledge/index-settings
+POST   /api/v1/admin/knowledge/reindex
 GET    /actuator/prometheus
 ```
 
-详细设计见 [架构说明](docs/architecture.md)、[飞书连接器管理指南](docs/feishu-connector.md)、[评测指南](docs/evaluation.md) 和
-[阶段路线图](docs/roadmap.md)。
+详细设计见 [架构说明](docs/architecture.md)、[语言模型管理指南](docs/language-models.md)、
+[文档与知识管理](docs/document-knowledge-admin.md)、[用户管理](docs/user-administration.md)、[飞书连接器管理指南](docs/feishu-connector.md)、
+[Agent 注册中心](docs/agent-registry.md)、[评测指南](docs/evaluation.md) 和 [阶段路线图](docs/roadmap.md)。
 
 ## 技术栈
 

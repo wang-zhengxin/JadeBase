@@ -2,7 +2,9 @@ package ai.jadebase.common;
 
 import ai.jadebase.identity.domain.AuthenticationException;
 import ai.jadebase.identity.domain.IdentityConflictException;
+import ai.jadebase.identity.domain.IdentityAccessException;
 import ai.jadebase.connector.feishu.FeishuApiException;
+import ai.jadebase.model.ModelProviderException;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -31,6 +33,11 @@ public class ApiExceptionHandler {
         return error(HttpStatus.BAD_GATEWAY, exception.getMessage());
     }
 
+    @ExceptionHandler(ModelProviderException.class)
+    ResponseEntity<Map<String, Object>> modelProviderError(ModelProviderException exception) {
+        return error(HttpStatus.BAD_GATEWAY, exception.getMessage());
+    }
+
     @ExceptionHandler(AuthenticationException.class)
     ResponseEntity<Map<String, Object>> unauthorized(AuthenticationException exception) {
         return error(HttpStatus.UNAUTHORIZED, exception.getMessage());
@@ -39,6 +46,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IdentityConflictException.class)
     ResponseEntity<Map<String, Object>> conflict(IdentityConflictException exception) {
         return error(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    @ExceptionHandler(IdentityAccessException.class)
+    ResponseEntity<Map<String, Object>> forbidden(IdentityAccessException exception) {
+        return error(HttpStatus.FORBIDDEN, exception.getMessage());
     }
 
     private ResponseEntity<Map<String, Object>> error(HttpStatus status, String message) {

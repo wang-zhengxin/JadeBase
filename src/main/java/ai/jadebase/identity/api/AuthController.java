@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
@@ -38,7 +39,7 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<UserResponse> register(@Valid @RequestBody Credentials request,
                                                   HttpServletResponse response) {
-        AuthService.SessionResult session = authService.register(request.email(), request.password());
+        AuthService.SessionResult session = authService.register(request.email(), request.password(), request.inviteToken());
         AuthCookies.write(response, session.token(), secureCookie);
         return ResponseEntity.status(HttpStatus.CREATED).body(UserResponse.from(session.user()));
     }
@@ -53,6 +54,12 @@ public class AuthController {
     @GetMapping("/me")
     public UserResponse me(HttpServletRequest request) {
         return UserResponse.from(AuthenticatedRequest.user(request));
+    }
+
+    @GetMapping("/registration-policy")
+    public ai.jadebase.identity.admin.UserAdminService.AccessPolicyView registrationPolicy(
+            @RequestParam(required = false) String inviteToken) {
+        return authService.registrationPolicy(inviteToken);
     }
 
     @PatchMapping("/me")
@@ -78,7 +85,8 @@ public class AuthController {
 
     public record Credentials(
             @NotBlank @Email @Size(max = 320) String email,
-            @NotBlank @Size(min = 8, max = 72) String password) { }
+            @NotBlank @Size(min = 8, max = 72) String password,
+            String inviteToken) { }
 
     public record UpdateProfile(@Size(max = 40) String displayName) { }
 
@@ -86,11 +94,13 @@ public class AuthController {
             @NotBlank String currentPassword,
             @NotBlank @Size(min = 8, max = 72) String newPassword) { }
 
-    public record UserResponse(UUID id, String email, String displayName, String role,
-                               Instant createdAt, Instant updatedAt) {
+    public record UserResponse(UUID id, String email, String displayName, String role, String status,
+                               Instant createdAt, Instant updatedAt, Instant lastLoginAt) {
         static UserResponse from(JadeUser user) {
             return new UserResponse(user.getId(), user.getEmail(), user.getDisplayName(),
-                    user.getRole().name().toLowerCase(Locale.ROOT), user.getCreatedAt(), user.getUpdatedAt());
+                    user.getRole().name().toLowerCase(Locale.ROOT),
+                    user.getStatus().name().toLowerCase(Locale.ROOT), user.getCreatedAt(),
+                    user.getUpdatedAt(), user.getLastLoginAt());
         }
     }
 }

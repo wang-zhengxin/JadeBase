@@ -83,6 +83,13 @@ class JadeBaseIntegrationTest {
         assertThat(conversation.messages().getLast().sources()).isNotEmpty();
         assertThat(conversation.messages().getLast().sources().getFirst().documentName()).isEqualTo("review.md");
 
+        ChatService.ChatResult thinking = chatService.ask(knowledgeBase.getId(), result.conversationId(),
+                "请深入分析审批依据", 6, "zh-CN", true);
+        assertThat(thinking.thinkMode()).isTrue();
+        assertThat(thinking.reasoning()).contains("混合检索");
+        assertThat(conversationService.get(result.conversationId()).messages().getLast().reasoning())
+                .isEqualTo(thinking.reasoning());
+
         EvaluationService.EvaluationReport report = evaluationService.evaluate(knowledgeBase.getId(), 6,
                 java.util.List.of(new EvaluationService.EvaluationCase("高风险变更如何审批？",
                         java.util.List.of("review.md"), java.util.List.of("两名", "审查者"))));

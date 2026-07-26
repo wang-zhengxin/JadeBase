@@ -29,4 +29,14 @@ public class WorkspaceSettingsService {
         settings.update(preferences);
         return repository.save(settings);
     }
+
+    @Transactional
+    public WorkspaceSettings updateTopK(int topK) {
+        if (topK < 1 || topK > 12) {
+            throw new IllegalArgumentException("召回片段数必须在 1 到 12 之间");
+        }
+        WorkspaceSettings settings = get();
+        settings.updateTopK(topK);
+        return repository.save(settings);
+    }
 }

@@ -6,6 +6,9 @@
 - [x] 常用文件解析与中文分块
 - [x] 混合检索与引用
 - [x] 国产模型兼容接口
+- [x] 管理后台模型供应商、OpenAI 通用接口与本地模型接入
+- [x] 管理后台连接器、文档集与运行时索引设置
+- [x] 基础用户邀请、角色管理、账号停用与受限注册
 - [x] 无密钥演示模式
 - [x] Web 工作台和容器化配置
 - [x] 会话历史、服务端设置和通知状态
@@ -28,7 +31,8 @@
 
 ## Phase 4 · Agent Workspace
 
-- [ ] [Agent 与工具注册中心](https://github.com/wang-zhengxin/JadeBase/issues/7)
+- [x] [Agent 注册中心、版本与运行审计](https://github.com/wang-zhengxin/JadeBase/issues/7)
+- [ ] [工具注册中心](https://github.com/wang-zhengxin/JadeBase/issues/7)
 - [ ] [MCP 工具接入](https://github.com/wang-zhengxin/JadeBase/issues/7)
 - [ ] [工作流编排和人工确认节点](https://github.com/wang-zhengxin/JadeBase/issues/8)
 - [ ] [Code Review Agent 旗舰工作流](https://github.com/wang-zhengxin/JadeBase/issues/9)
