@@ -431,9 +431,13 @@
             </header>
 
             <section class="admin-default-model" aria-labelledby="defaultModelHeading">
-                <div><h2 id="defaultModelHeading">默认模型</h2><p>该模型将用于工作区中的对话与查询改写。</p></div>
-                <label class="sr-only" for="defaultModelSelect">默认模型</label>
-                <select id="defaultModelSelect"><option value="">正在加载</option></select>
+                <div class="default-model-intro"><h2 id="defaultModelHeading">工作区默认模型</h2><p>对话、向量化与结果重排均从后台配置；环境变量仅作为未配置时的兼容回退。</p></div>
+                <div class="default-model-grid">
+                    <label><span><strong>对话模型</strong><small>回答、查询改写与 Agent 默认使用</small></span><select id="defaultModelSelect"><option value="">正在加载</option></select></label>
+                    <label><span><strong>Embedding 模型</strong><small>文档索引与向量召回使用</small></span><select id="defaultEmbeddingModelSelect"><option value="">正在加载</option></select></label>
+                    <label><span><strong>Reranker 模型</strong><small>混合召回后的精排使用</small></span><select id="defaultRerankerModelSelect"><option value="">正在加载</option></select></label>
+                </div>
+                <p class="embedding-model-warning">更换 Embedding 模型或维度后，请在“索引设置”中重新索引已有文档。</p>
             </section>
 
             <section class="admin-model-section">
@@ -874,8 +878,13 @@
             </div>
             <p class="model-provider-result" id="modelProviderResult" hidden></p>
 
-            <div class="model-selection-heading"><div><h3>模型</h3><p>选择要在工作区中开放的聊天模型。</p></div><button id="selectAllModelsButton" type="button">全选</button></div>
-            <div class="manual-model-row"><input id="manualModelId" maxlength="255" autocomplete="off" placeholder="手动添加模型 ID"><button class="secondary-button" id="addManualModelButton" type="button">添加</button></div>
+            <div class="model-selection-heading"><div><h3>模型与能力</h3><p>为每个模型指定对话、Embedding 或 Reranker 能力。</p></div><button id="selectAllModelsButton" type="button">全选</button></div>
+            <div class="manual-model-row">
+                <input id="manualModelId" maxlength="255" autocomplete="off" placeholder="手动添加模型 ID">
+                <select id="manualModelCapability" aria-label="模型能力"><option value="CHAT">对话</option><option value="EMBEDDING">Embedding</option><option value="RERANKER">Reranker</option></select>
+                <input id="manualModelDimensions" type="number" min="8" max="32768" value="384" aria-label="Embedding 维度" hidden>
+                <button class="secondary-button" id="addManualModelButton" type="button">添加</button>
+            </div>
             <div class="model-option-list" id="modelOptionList"><p>点击“发现模型”读取可用模型，或手动添加模型 ID。</p></div>
         </div>
         <footer class="model-provider-footer">

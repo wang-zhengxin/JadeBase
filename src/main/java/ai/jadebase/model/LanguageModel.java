@@ -2,6 +2,8 @@ package ai.jadebase.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -11,6 +13,10 @@ import java.util.UUID;
 @Entity
 @Table(name = "language_models")
 public class LanguageModel {
+
+    public enum Capability {
+        CHAT, EMBEDDING, RERANKER
+    }
 
     @Id
     private UUID id;
@@ -23,6 +29,13 @@ public class LanguageModel {
 
     @Column(name = "display_name", nullable = false, length = 255)
     private String displayName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private Capability capability;
+
+    @Column(name = "embedding_dimensions")
+    private Integer embeddingDimensions;
 
     @Column(nullable = false)
     private boolean enabled;
@@ -39,10 +52,15 @@ public class LanguageModel {
     protected LanguageModel() { }
 
     public LanguageModel(UUID providerId, String modelId) {
+        this(providerId, modelId, Capability.CHAT, null);
+    }
+
+    public LanguageModel(UUID providerId, String modelId, Capability capability, Integer embeddingDimensions) {
         this.id = UUID.randomUUID();
         this.providerId = providerId;
         this.modelId = modelId;
         this.displayName = modelId;
+        configure(capability, embeddingDimensions);
         this.enabled = true;
         this.defaultModel = false;
         this.createdAt = Instant.now();
@@ -51,6 +69,12 @@ public class LanguageModel {
 
     public void enable() {
         this.enabled = true;
+        this.updatedAt = Instant.now();
+    }
+
+    public void configure(Capability capability, Integer embeddingDimensions) {
+        this.capability = capability == null ? Capability.CHAT : capability;
+        this.embeddingDimensions = this.capability == Capability.EMBEDDING ? embeddingDimensions : null;
         this.updatedAt = Instant.now();
     }
 
@@ -63,6 +87,8 @@ public class LanguageModel {
     public UUID getProviderId() { return providerId; }
     public String getModelId() { return modelId; }
     public String getDisplayName() { return displayName; }
+    public Capability getCapability() { return capability; }
+    public Integer getEmbeddingDimensions() { return embeddingDimensions; }
     public boolean isEnabled() { return enabled; }
     public boolean isDefaultModel() { return defaultModel; }
     public Instant getCreatedAt() { return createdAt; }

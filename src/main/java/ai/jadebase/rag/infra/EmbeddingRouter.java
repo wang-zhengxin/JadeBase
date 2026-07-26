@@ -1,5 +1,7 @@
 package ai.jadebase.rag.infra;
 
+import ai.jadebase.model.LanguageModel;
+import ai.jadebase.model.ModelRuntimeResolver;
 import ai.jadebase.rag.domain.EmbeddingClient;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
@@ -13,34 +15,37 @@ import java.util.Map;
 @Component
 public class EmbeddingRouter implements EmbeddingClient {
 
-    private final ModelProperties properties;
+    private final ModelRuntimeResolver models;
     private final LocalHashingEmbeddingClient local;
     private final RestClient restClient;
 
-    public EmbeddingRouter(ModelProperties properties, LocalHashingEmbeddingClient local,
+    public EmbeddingRouter(ModelRuntimeResolver models, LocalHashingEmbeddingClient local,
                            RestClient.Builder builder) {
-        this.properties = properties;
+        this.models = models;
         this.local = local;
         this.restClient = builder.build();
     }
 
     @Override
     public double[] embed(String text) {
-        if (!properties.hasEmbeddingModel()) return local.embed(text);
+        ModelRuntimeResolver.RuntimeModel model = models.current(LanguageModel.Capability.EMBEDDING);
+        if (!model.configured()) return local.embed(text);
+        int dimensions = model.embeddingDimensions() == null ? 384 : model.embeddingDimensions();
         EmbeddingResponse response = restClient.post()
-                .uri(normalize(properties.embeddingBaseUrl()) + "/v1/embeddings")
-                .header("Authorization", "Bearer " + properties.embeddingApiKey())
+                .uri(normalize(model.baseUrl()) + "/embeddings")
+                .headers(headers -> {
+                    if (model.apiKey() != null && !model.apiKey().isBlank()) headers.setBearerAuth(model.apiKey());
+                })
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("model", properties.embeddingModel(), "input", text,
-                        "dimensions", properties.embeddingDimensions()))
+                .body(Map.of("model", model.modelId(), "input", text))
                 .retrieve()
                 .body(EmbeddingResponse.class);
         if (response == null || response.data() == null || response.data().isEmpty()) {
             throw new IllegalStateException("Embedding 模型没有返回有效向量");
         }
         List<Double> values = response.data().getFirst().embedding();
-        if (values.size() != properties.embeddingDimensions()) {
-            throw new IllegalStateException("Embedding 维度不匹配：期望 " + properties.embeddingDimensions()
+        if (values.size() != dimensions) {
+            throw new IllegalStateException("Embedding 维度不匹配：期望 " + dimensions
                     + "，实际 " + values.size());
         }
         double[] vector = new double[values.size()];

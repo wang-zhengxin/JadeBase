@@ -26,11 +26,16 @@ public class ModelRuntimeResolver {
 
     @Transactional(readOnly = true)
     public RuntimeModel current() {
-        return models.findFirstByDefaultModelTrueAndEnabledTrueOrderByCreatedAtAsc()
+        return current(LanguageModel.Capability.CHAT);
+    }
+
+    @Transactional(readOnly = true)
+    public RuntimeModel current(LanguageModel.Capability capability) {
+        return models.findFirstByCapabilityAndDefaultModelTrueAndEnabledTrueOrderByCreatedAtAsc(capability)
                 .flatMap(model -> providers.findById(model.getProviderId()).map(provider -> new RuntimeModel(
                         provider.getBaseUrl(), cipher.decrypt(provider.getEncryptedApiKey()), model.getModelId(),
-                        provider.getDisplayName(), true, "database")))
-                .orElseGet(this::environmentFallback);
+                        provider.getDisplayName(), capability, model.getEmbeddingDimensions(), true, "database")))
+                .orElseGet(() -> environmentFallback(capability));
     }
 
     @Transactional(readOnly = true)
@@ -39,18 +44,44 @@ public class ModelRuntimeResolver {
         LanguageModel model = models.findByProviderIdAndModelId(providerId, modelId)
                 .filter(LanguageModel::isEnabled)
                 .orElseThrow(() -> new EntityNotFoundException("Agent 配置的模型不存在或未启用"));
+        if (model.getCapability() != LanguageModel.Capability.CHAT) {
+            throw new EntityNotFoundException("Agent 只能使用对话模型");
+        }
         ModelProvider provider = providers.findById(model.getProviderId())
                 .orElseThrow(() -> new EntityNotFoundException("Agent 配置的模型供应商不存在"));
         return new RuntimeModel(provider.getBaseUrl(), cipher.decrypt(provider.getEncryptedApiKey()),
-                model.getModelId(), provider.getDisplayName(), true, "agent");
+                model.getModelId(), provider.getDisplayName(), model.getCapability(),
+                model.getEmbeddingDimensions(), true, "agent");
     }
 
-    private RuntimeModel environmentFallback() {
-        boolean configured = fallback.hasChatModel();
-        String modelName = fallback.chatModel() == null || fallback.chatModel().isBlank()
-                ? "本地演示" : fallback.chatModel();
-        return new RuntimeModel(environmentApiRoot(fallback.baseUrl()), fallback.apiKey(), modelName,
-                configured ? "环境变量" : "未配置", configured, configured ? "environment" : "fallback");
+    private RuntimeModel environmentFallback(LanguageModel.Capability capability) {
+        String baseUrl;
+        String apiKey;
+        String modelId;
+        Integer dimensions = null;
+        boolean configured;
+        if (capability == LanguageModel.Capability.EMBEDDING) {
+            baseUrl = fallback.embeddingBaseUrl();
+            apiKey = fallback.embeddingApiKey();
+            modelId = fallback.embeddingModel();
+            dimensions = fallback.embeddingDimensions();
+            configured = fallback.hasEmbeddingModel();
+        } else if (capability == LanguageModel.Capability.RERANKER) {
+            baseUrl = fallback.rerankerBaseUrl();
+            apiKey = fallback.rerankerApiKey();
+            modelId = fallback.rerankerModel();
+            configured = fallback.hasReranker();
+        } else {
+            baseUrl = fallback.baseUrl();
+            apiKey = fallback.apiKey();
+            modelId = fallback.chatModel();
+            configured = fallback.hasChatModel();
+        }
+        String fallbackName = capability == LanguageModel.Capability.CHAT ? "本地演示" : "未配置";
+        String modelName = modelId == null || modelId.isBlank() ? fallbackName : modelId;
+        return new RuntimeModel(environmentApiRoot(baseUrl), apiKey, modelName,
+                configured ? "环境变量" : "未配置", capability, dimensions,
+                configured, configured ? "environment" : "fallback");
     }
 
     static String environmentApiRoot(String baseUrl) {
@@ -62,5 +93,6 @@ public class ModelRuntimeResolver {
     }
 
     public record RuntimeModel(String baseUrl, String apiKey, String modelId, String providerName,
+                               LanguageModel.Capability capability, Integer embeddingDimensions,
                                boolean configured, String source) { }
 }

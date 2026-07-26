@@ -57,6 +57,51 @@ public class OpenAiProviderClient {
         }
     }
 
+    public void testEmbedding(String baseUrl, String apiKey, String modelId, int dimensions) {
+        try {
+            String payload = json.writeValueAsString(Map.of(
+                    "model", modelId, "input", "JadeBase connection test"));
+            JsonNode body = send(request(baseUrl, "embeddings", apiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(payload))
+                    .build());
+            JsonNode embedding = body.path("data").path(0).path("embedding");
+            if (!embedding.isArray() || embedding.isEmpty()) {
+                throw new ModelProviderException("模型连接成功，但没有返回有效向量");
+            }
+            if (embedding.size() != dimensions) {
+                throw new ModelProviderException("Embedding 维度不匹配：期望 " + dimensions
+                        + "，实际 " + embedding.size());
+            }
+        } catch (ModelProviderException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new ModelProviderException("Embedding 连接测试失败：" + exception.getMessage(), exception);
+        }
+    }
+
+    public void testReranker(String baseUrl, String apiKey, String modelId) {
+        try {
+            String payload = json.writeValueAsString(Map.of(
+                    "model", modelId,
+                    "query", "enterprise search",
+                    "documents", List.of("enterprise search", "unrelated content"),
+                    "top_n", 1,
+                    "return_documents", false));
+            JsonNode body = send(request(baseUrl, "rerank", apiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(payload))
+                    .build());
+            if (!body.path("results").isArray() || body.path("results").isEmpty()) {
+                throw new ModelProviderException("模型连接成功，但没有返回有效重排结果");
+            }
+        } catch (ModelProviderException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new ModelProviderException("Reranker 连接测试失败：" + exception.getMessage(), exception);
+        }
+    }
+
     private HttpRequest.Builder request(String baseUrl, String path, String apiKey) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint(baseUrl, path))
                 .timeout(Duration.ofSeconds(45))

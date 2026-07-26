@@ -56,7 +56,9 @@ class LanguageModelAdminIntegrationTest {
         server.createContext("/v1/models", exchange -> respond(exchange, 200, """
                 {"object":"list","data":[
                   {"id":"mock-chat","object":"model","owned_by":"test"},
-                  {"id":"mock-reasoner","object":"model","owned_by":"test"}
+                  {"id":"mock-reasoner","object":"model","owned_by":"test"},
+                  {"id":"mock-embed","object":"model","owned_by":"test"},
+                  {"id":"mock-reranker","object":"model","owned_by":"test"}
                 ]}
                 """));
         server.createContext("/v1/chat/completions", exchange -> {
@@ -68,6 +70,19 @@ class LanguageModelAdminIntegrationTest {
                      "reasoning_content":"分析问题并核对知识库证据。"}}]}
                     """);
         });
+        server.createContext("/v1/embeddings", exchange -> {
+            StringBuilder vector = new StringBuilder();
+            for (int i = 0; i < 384; i++) {
+                if (i > 0) vector.append(',');
+                vector.append(i == 0 ? "1.0" : "0.0");
+            }
+            respond(exchange, 200, """
+                    {"object":"list","data":[{"object":"embedding","index":0,"embedding":[%s]}]}
+                    """.formatted(vector));
+        });
+        server.createContext("/v1/rerank", exchange -> respond(exchange, 200, """
+                {"results":[{"index":0,"relevance_score":0.98}]}
+                """));
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/v1";
     }
@@ -96,14 +111,19 @@ class LanguageModelAdminIntegrationTest {
                                 {"providerType":"OPENAI_COMPATIBLE","baseUrl":"%s","apiKey":"model-secret"}
                                 """.formatted(baseUrl)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.models.length()").value(2));
+                .andExpect(jsonPath("$.models.length()").value(4));
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/model-providers")
                         .cookie(owner).contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"providerType":"OPENAI_COMPATIBLE","displayName":"测试兼容服务",
                                  "baseUrl":"%s","apiKey":"model-secret",
-                                 "modelIds":["mock-chat","mock-reasoner"]}
+                                 "models":[
+                                   {"modelId":"mock-chat","capability":"CHAT"},
+                                   {"modelId":"mock-reasoner","capability":"CHAT"},
+                                   {"modelId":"mock-embed","capability":"EMBEDDING","embeddingDimensions":384},
+                                   {"modelId":"mock-reranker","capability":"RERANKER"}
+                                 ]}
                                 """.formatted(baseUrl)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.apiKeyConfigured").value(true))
@@ -121,6 +141,35 @@ class LanguageModelAdminIntegrationTest {
                                 """.formatted(baseUrl)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.models[0]").value("mock-chat"));
+
+        mockMvc.perform(get("/api/v1/admin/model-providers/defaults").cookie(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].capability").value("CHAT"))
+                .andExpect(jsonPath("$[0].modelId").value("mock-chat"))
+                .andExpect(jsonPath("$[1].capability").value("EMBEDDING"))
+                .andExpect(jsonPath("$[1].modelId").value("mock-embed"))
+                .andExpect(jsonPath("$[1].embeddingDimensions").value(384))
+                .andExpect(jsonPath("$[2].capability").value("RERANKER"))
+                .andExpect(jsonPath("$[2].modelId").value("mock-reranker"));
+
+        mockMvc.perform(post("/api/v1/admin/model-providers/test")
+                        .cookie(owner).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"providerId":"%s","providerType":"OPENAI_COMPATIBLE","baseUrl":"%s",
+                                 "apiKey":"","modelId":"mock-embed","capability":"EMBEDDING",
+                                 "embeddingDimensions":384}
+                                """.formatted(providerId, baseUrl)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.connected").value(true));
+
+        mockMvc.perform(post("/api/v1/admin/model-providers/test")
+                        .cookie(owner).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"providerId":"%s","providerType":"OPENAI_COMPATIBLE","baseUrl":"%s",
+                                 "apiKey":"","modelId":"mock-reranker","capability":"RERANKER"}
+                                """.formatted(providerId, baseUrl)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.connected").value(true));
 
         mockMvc.perform(put("/api/v1/admin/model-providers/default")
                         .cookie(owner).contentType(MediaType.APPLICATION_JSON)

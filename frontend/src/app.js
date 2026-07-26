@@ -3,7 +3,7 @@ const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const state = { currentUser: null, knowledgeBases: [], activeId: null, documents: [], conversationId: null,
     conversations: [], memories: [], documentEvents: null, documentEventKnowledgeBaseId: null,
     feishuConnections: [], feishuSources: [], feishuTasks: [], modelCatalog: [], modelProviders: [],
-    currentModel: null, adminPage: 'language-models', knowledgeSummary: null, adminDocuments: [],
+    currentModel: null, currentModels: [], adminPage: 'language-models', knowledgeSummary: null, adminDocuments: [],
     documentSets: [], indexSettings: null, userAdmin: null, userPage: 0,
     userFilters: { query: '', role: 'all', status: 'all' },
     agents: [], availableAgents: [], activeAgentId: null,
@@ -67,6 +67,8 @@ const elements = {
     providerCatalogGrid: document.querySelector('#providerCatalogGrid'),
     configuredProviderList: document.querySelector('#configuredProviderList'),
     defaultModelSelect: document.querySelector('#defaultModelSelect'),
+    defaultEmbeddingModelSelect: document.querySelector('#defaultEmbeddingModelSelect'),
+    defaultRerankerModelSelect: document.querySelector('#defaultRerankerModelSelect'),
     modelProviderDialog: document.querySelector('#modelProviderDialog'),
     modelProviderForm: document.querySelector('#modelProviderForm'),
     modelOptionList: document.querySelector('#modelOptionList'),
@@ -1001,7 +1003,8 @@ function renderAgentAdmin() {
 
 function agentModelOptions(selectedValue = '') {
     const options = [{ value: '', label: '工作区默认模型' }];
-    state.modelProviders.forEach(provider => provider.models.filter(model => model.enabled).forEach(model => {
+    state.modelProviders.forEach(provider => provider.models
+        .filter(model => model.enabled && (model.capability || 'CHAT') === 'CHAT').forEach(model => {
         options.push({ value: `${provider.id}|${encodeURIComponent(model.modelId)}`,
             label: `${model.displayName} · ${provider.displayName}` });
     }));
@@ -1478,11 +1481,17 @@ async function loadModelAdmin() {
         state.modelCatalog = previewModelCatalog();
         state.modelProviders = [];
         state.currentModel = { modelId: '本地演示', providerName: '未配置', configured: false, source: 'fallback' };
+        state.currentModels = [
+            { capability: 'CHAT', ...state.currentModel },
+            { capability: 'EMBEDDING', modelId: '本地哈希向量', configured: false, source: 'fallback', embeddingDimensions: 384 },
+            { capability: 'RERANKER', modelId: '未配置', configured: false, source: 'fallback' }
+        ];
     } else {
-        [state.modelCatalog, state.modelProviders, state.currentModel] = await Promise.all([
+        [state.modelCatalog, state.modelProviders, state.currentModel, state.currentModels] = await Promise.all([
             api('/api/v1/admin/model-providers/catalog'),
             api('/api/v1/admin/model-providers'),
-            api('/api/v1/models/current')
+            api('/api/v1/models/current'),
+            api('/api/v1/admin/model-providers/defaults')
         ]);
     }
     renderModelAdmin();
@@ -1521,29 +1530,58 @@ function renderModelAdmin() {
     } else {
         elements.configuredProviderList.innerHTML = state.modelProviders.map(provider => {
             const preset = modelPreset(provider.providerType);
-            const isDefault = provider.models.some(model => model.defaultModel);
+            const defaults = provider.models.filter(model => model.defaultModel)
+                .map(model => capabilityLabel(model.capability || 'CHAT'));
+            const counts = ['CHAT', 'EMBEDDING', 'RERANKER'].map(capability => {
+                const count = provider.models.filter(model => (model.capability || 'CHAT') === capability).length;
+                return count ? `${capabilityLabel(capability)} ${count}` : '';
+            }).filter(Boolean).join(' · ');
             return `<article class="configured-provider">
                 <span class="provider-mark">${escapeHtml(preset.mark)}</span>
-                <span class="configured-provider-copy"><div><strong>${escapeHtml(provider.displayName)}</strong>${isDefault ? '<span class="default-provider-badge">默认</span>' : ''}</div><small>${provider.models.length} 个模型 · ${escapeHtml(provider.baseUrl)}</small></span>
+                <span class="configured-provider-copy"><div><strong>${escapeHtml(provider.displayName)}</strong>${defaults.length ? `<span class="default-provider-badge">默认：${escapeHtml(defaults.join(' / '))}</span>` : ''}</div><small>${escapeHtml(counts || '尚未启用模型')} · ${escapeHtml(provider.baseUrl)}</small></span>
                 <span class="provider-status ${provider.status === 'ERROR' ? 'error' : ''}">${escapeHtml(provider.statusMessage || '等待测试')}</span>
                 <button class="icon-button" data-configure-provider="${provider.id}" type="button" title="配置供应商" aria-label="配置 ${escapeHtml(provider.displayName)}">${iconMarkup('settings')}</button>
             </article>`;
         }).join('');
     }
 
-    const options = [];
-    state.modelProviders.forEach(provider => provider.models.filter(model => model.enabled).forEach(model => {
-        options.push({ value: `${provider.id}|${encodeURIComponent(model.modelId)}`,
-            label: `${model.displayName} · ${provider.displayName}`, selected: model.defaultModel });
-    }));
-    if (!options.length) {
-        elements.defaultModelSelect.innerHTML = `<option value="">${escapeHtml(state.currentModel?.configured ? `${state.currentModel.modelId} · 环境变量` : '本地演示')}</option>`;
-        elements.defaultModelSelect.disabled = true;
-    } else {
-        elements.defaultModelSelect.disabled = false;
-        elements.defaultModelSelect.innerHTML = options.map(option => `<option value="${option.value}" ${option.selected ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
-    }
+    renderDefaultModelSelect(elements.defaultModelSelect, 'CHAT');
+    renderDefaultModelSelect(elements.defaultEmbeddingModelSelect, 'EMBEDDING');
+    renderDefaultModelSelect(elements.defaultRerankerModelSelect, 'RERANKER');
     if (state.currentModel?.configured) setModelStatus(state.currentModel.modelId);
+}
+
+function capabilityLabel(capability) {
+    return { CHAT: '对话', EMBEDDING: 'Embedding', RERANKER: 'Reranker' }[capability] || capability;
+}
+
+function inferModelCapability(modelId) {
+    const id = (modelId || '').toLowerCase();
+    if (id.includes('rerank')) return 'RERANKER';
+    if (id.includes('embed') || id.includes('bge-') || id.includes('e5-')) return 'EMBEDDING';
+    return 'CHAT';
+}
+
+function renderDefaultModelSelect(select, capability) {
+    const options = [];
+    state.modelProviders.forEach(provider => provider.models
+        .filter(model => model.enabled && (model.capability || 'CHAT') === capability)
+        .forEach(model => options.push({
+            value: `${provider.id}|${encodeURIComponent(model.modelId)}`,
+            label: `${model.displayName} · ${provider.displayName}`,
+            selected: model.defaultModel
+        })));
+    const current = state.currentModels.find(model => model.capability === capability);
+    if (!options.length) {
+        const fallback = current?.configured ? `${current.modelId} · 环境变量`
+            : (capability === 'EMBEDDING' ? '本地哈希向量（384 维）' : '未配置');
+        select.innerHTML = `<option value="">${escapeHtml(fallback)}</option>`;
+        select.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    select.innerHTML = options.map(option =>
+        `<option value="${option.value}" ${option.selected ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
 }
 
 function openModelProviderDialog(type, providerId = '') {
@@ -1567,8 +1605,10 @@ function openModelProviderDialog(type, providerId = '') {
     document.querySelector('#modelProviderResult').classList.remove('error');
     document.querySelector('#manualModelId').value = '';
     modelDialogModels = provider
-        ? provider.models.map(model => ({ id: model.modelId, selected: model.enabled }))
-        : (preset.suggestedModels || []).map(id => ({ id, selected: true }));
+        ? provider.models.map(model => ({ id: model.modelId, selected: model.enabled,
+            capability: model.capability || 'CHAT', dimensions: model.embeddingDimensions || 384 }))
+        : (preset.suggestedModels || []).map(id => ({ id, selected: true,
+            capability: inferModelCapability(id), dimensions: 384 }));
     renderModelOptions();
     elements.modelProviderDialog.showModal();
     document.querySelector('#modelProviderBaseUrl').focus();
@@ -1577,7 +1617,12 @@ function openModelProviderDialog(type, providerId = '') {
 function captureModelSelections() {
     document.querySelectorAll('[data-model-option]').forEach(input => {
         const model = modelDialogModels.find(item => item.id === input.dataset.modelOption);
-        if (model) model.selected = input.checked;
+        if (!model) return;
+        model.selected = input.checked;
+        const capability = document.querySelector(`[data-model-capability="${CSS.escape(model.id)}"]`);
+        const dimensions = document.querySelector(`[data-model-dimensions="${CSS.escape(model.id)}"]`);
+        model.capability = capability?.value || model.capability || 'CHAT';
+        model.dimensions = Number(dimensions?.value || model.dimensions || 384);
     });
 }
 
@@ -1587,7 +1632,20 @@ function renderModelOptions() {
         return;
     }
     elements.modelOptionList.innerHTML = modelDialogModels.map(model => `
-        <label class="model-option"><input type="checkbox" data-model-option="${escapeHtml(model.id)}" ${model.selected ? 'checked' : ''}><span>${escapeHtml(model.id)}</span></label>`).join('');
+        <label class="model-option">
+            <input type="checkbox" data-model-option="${escapeHtml(model.id)}" ${model.selected ? 'checked' : ''}>
+            <span class="model-option-name">${escapeHtml(model.id)}</span>
+            <span class="model-option-controls">
+                <select data-model-capability="${escapeHtml(model.id)}" aria-label="${escapeHtml(model.id)} 的模型能力">
+                    <option value="CHAT" ${model.capability === 'CHAT' ? 'selected' : ''}>对话</option>
+                    <option value="EMBEDDING" ${model.capability === 'EMBEDDING' ? 'selected' : ''}>Embedding</option>
+                    <option value="RERANKER" ${model.capability === 'RERANKER' ? 'selected' : ''}>Reranker</option>
+                </select>
+                <input data-model-dimensions="${escapeHtml(model.id)}" type="number" min="8" max="32768"
+                    value="${Number(model.dimensions || 384)}" aria-label="${escapeHtml(model.id)} 的向量维度"
+                    ${model.capability === 'EMBEDDING' ? '' : 'hidden'}>
+            </span>
+        </label>`).join('');
 }
 
 function modelProviderPayload() {
@@ -1597,7 +1655,12 @@ function modelProviderPayload() {
         displayName: document.querySelector('#modelProviderDisplayName').value.trim(),
         baseUrl: document.querySelector('#modelProviderBaseUrl').value.trim(),
         apiKey: document.querySelector('#modelProviderApiKey').value.trim(),
-        modelIds: modelDialogModels.filter(model => model.selected).map(model => model.id)
+        modelIds: modelDialogModels.filter(model => model.selected).map(model => model.id),
+        models: modelDialogModels.filter(model => model.selected).map(model => ({
+            modelId: model.id,
+            capability: model.capability || 'CHAT',
+            embeddingDimensions: model.capability === 'EMBEDDING' ? Number(model.dimensions || 384) : null
+        }))
     };
 }
 
@@ -1620,9 +1683,12 @@ async function discoverProviderModels() {
     });
     captureModelSelections();
     const selected = new Set(modelDialogModels.filter(model => model.selected).map(model => model.id));
+    const previous = new Map(modelDialogModels.map(model => [model.id, model]));
     modelDialogModels = [...new Set([...modelDialogModels.map(model => model.id), ...result.models])]
         .sort((a, b) => a.localeCompare(b))
-        .map(id => ({ id, selected: selected.has(id) || result.models.includes(id) }));
+        .map(id => ({ id, selected: selected.has(id) || result.models.includes(id),
+            capability: previous.get(id)?.capability || inferModelCapability(id),
+            dimensions: previous.get(id)?.dimensions || 384 }));
     renderModelOptions();
     showModelProviderResult(result.message);
 }
@@ -1948,7 +2014,7 @@ elements.configuredProviderList.addEventListener('click', event => {
         if (provider) openModelProviderDialog(provider.providerType, provider.id);
     }
 });
-elements.defaultModelSelect.addEventListener('change', async event => {
+async function changeDefaultModel(event) {
     if (!event.target.value) return;
     const [providerId, encodedModelId] = event.target.value.split('|');
     event.target.disabled = true;
@@ -1958,9 +2024,18 @@ elements.defaultModelSelect.addEventListener('change', async event => {
             body: JSON.stringify({ providerId, modelId: decodeURIComponent(encodedModelId) })
         });
         await refreshModelConfiguration();
-        showToast(`默认模型已切换为 ${state.currentModel.modelId}`);
+        showToast(`${event.target.dataset.capabilityLabel}默认模型已切换`);
     } catch (error) { showToast(error.message); }
     finally { event.target.disabled = false; }
+}
+
+[
+    [elements.defaultModelSelect, '对话'],
+    [elements.defaultEmbeddingModelSelect, 'Embedding'],
+    [elements.defaultRerankerModelSelect, 'Reranker']
+].forEach(([select, label]) => {
+    select.dataset.capabilityLabel = label;
+    select.addEventListener('change', changeDefaultModel);
 });
 
 document.querySelector('#adminAddConnectorButton').addEventListener('click', () => showAdminPage('add-connector').catch(error => showToast(error.message)));
@@ -2238,12 +2313,27 @@ document.querySelector('#addManualModelButton').addEventListener('click', () => 
     const id = input.value.trim();
     if (!id) return;
     captureModelSelections();
+    const capability = document.querySelector('#manualModelCapability').value;
+    const dimensions = Number(document.querySelector('#manualModelDimensions').value || 384);
     const existing = modelDialogModels.find(model => model.id === id);
-    if (existing) existing.selected = true;
-    else modelDialogModels.push({ id, selected: true });
+    if (existing) {
+        existing.selected = true;
+        existing.capability = capability;
+        existing.dimensions = dimensions;
+    } else modelDialogModels.push({ id, selected: true, capability, dimensions });
     modelDialogModels.sort((a, b) => a.id.localeCompare(b.id));
     input.value = '';
     renderModelOptions();
+});
+document.querySelector('#manualModelCapability').addEventListener('change', event => {
+    document.querySelector('#manualModelDimensions').hidden = event.target.value !== 'EMBEDDING';
+});
+elements.modelOptionList.addEventListener('change', event => {
+    const select = event.target.closest('[data-model-capability]');
+    if (!select) return;
+    const dimensions = document.querySelector(`[data-model-dimensions="${CSS.escape(select.dataset.modelCapability)}"]`);
+    if (dimensions) dimensions.hidden = select.value !== 'EMBEDDING';
+    captureModelSelections();
 });
 document.querySelector('#selectAllModelsButton').addEventListener('click', () => {
     captureModelSelections();
@@ -2260,7 +2350,7 @@ document.querySelector('#discoverModelsButton').addEventListener('click', async 
 });
 document.querySelector('#testModelProviderButton').addEventListener('click', async event => {
     const payload = modelProviderPayload();
-    const firstModel = payload.modelIds[0];
+    const firstModel = payload.models[0];
     if (!firstModel) {
         showModelProviderResult('请先选择或添加一个模型', true);
         return;
@@ -2271,7 +2361,8 @@ document.querySelector('#testModelProviderButton').addEventListener('click', asy
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ providerId: document.querySelector('#modelProviderId').value || null,
                 providerType: payload.providerType, baseUrl: payload.baseUrl,
-                apiKey: payload.apiKey, modelId: firstModel })
+                apiKey: payload.apiKey, modelId: firstModel.modelId, capability: firstModel.capability,
+                embeddingDimensions: firstModel.embeddingDimensions })
         });
         showModelProviderResult(result.message);
     } catch (error) { showModelProviderResult(error.message, true); }
@@ -2280,7 +2371,7 @@ document.querySelector('#testModelProviderButton').addEventListener('click', asy
 elements.modelProviderForm.addEventListener('submit', async event => {
     event.preventDefault();
     const payload = modelProviderPayload();
-    if (!payload.modelIds.length) {
+    if (!payload.models.length) {
         showModelProviderResult('请至少选择或添加一个模型', true);
         return;
     }
