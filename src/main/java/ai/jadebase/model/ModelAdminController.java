@@ -40,6 +40,12 @@ public class ModelAdminController {
         return service.list();
     }
 
+    @GetMapping("/defaults")
+    public List<ModelAdminService.CurrentModelView> defaults(HttpServletRequest request) {
+        requireOwner(request);
+        return service.defaults();
+    }
+
     @PostMapping("/discover")
     public ModelAdminService.DiscoveryResult discover(HttpServletRequest request,
                                                        @RequestBody ModelAdminService.ProviderConnection input) {

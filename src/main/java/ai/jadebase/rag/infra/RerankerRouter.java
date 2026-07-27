@@ -1,5 +1,7 @@
 package ai.jadebase.rag.infra;
 
+import ai.jadebase.model.LanguageModel;
+import ai.jadebase.model.ModelRuntimeResolver;
 import ai.jadebase.rag.domain.Reranker;
 import ai.jadebase.rag.domain.RetrievedChunk;
 import io.micrometer.core.instrument.Counter;
@@ -16,12 +18,12 @@ import java.util.Map;
 @Component
 public class RerankerRouter implements Reranker {
 
-    private final ModelProperties properties;
+    private final ModelRuntimeResolver models;
     private final RestClient restClient;
     private final Counter fallbackCounter;
 
-    public RerankerRouter(ModelProperties properties, RestClient.Builder builder, MeterRegistry meters) {
-        this.properties = properties;
+    public RerankerRouter(ModelRuntimeResolver models, RestClient.Builder builder, MeterRegistry meters) {
+        this.models = models;
         this.restClient = builder.build();
         this.fallbackCounter = meters.counter("jadebase.reranker.fallback");
     }
@@ -30,15 +32,18 @@ public class RerankerRouter implements Reranker {
     public List<RetrievedChunk> rerank(String query, List<RetrievedChunk> candidates, int limit) {
         if (!configured() || candidates.isEmpty()) return candidates.stream().limit(limit).toList();
         try {
+            ModelRuntimeResolver.RuntimeModel model = models.current(LanguageModel.Capability.RERANKER);
             Map<String, Object> body = Map.of(
-                    "model", properties.rerankerModel(),
+                    "model", model.modelId(),
                     "query", query,
                     "documents", candidates.stream().map(RetrievedChunk::content).toList(),
                     "top_n", Math.min(limit, candidates.size()),
                     "return_documents", false);
             RerankResponse response = restClient.post()
-                    .uri(normalize(properties.rerankerBaseUrl()) + "/v1/rerank")
-                    .header("Authorization", "Bearer " + properties.rerankerApiKey())
+                    .uri(normalize(model.baseUrl()) + "/rerank")
+                    .headers(headers -> {
+                        if (model.apiKey() != null && !model.apiKey().isBlank()) headers.setBearerAuth(model.apiKey());
+                    })
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
@@ -64,7 +69,7 @@ public class RerankerRouter implements Reranker {
 
     @Override
     public boolean configured() {
-        return properties.hasReranker();
+        return models.current(LanguageModel.Capability.RERANKER).configured();
     }
 
     private String normalize(String url) {

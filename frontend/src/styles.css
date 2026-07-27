@@ -1332,9 +1332,8 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
 .agent-context-select select { max-width: 180px; min-height: 30px; padding: 0 22px 0 2px; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 10px; font-weight: 650; cursor: pointer; }
 .admin-default-model {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(230px, 36%);
-    align-items: center;
-    gap: 24px;
+    grid-template-columns: 1fr;
+    gap: 16px;
     min-height: 94px;
     margin: 32px 0 38px;
     padding: 17px 20px;
@@ -1342,6 +1341,13 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
     border-radius: 8px;
     background: var(--surface);
 }
+.default-model-intro { display: grid; gap: 3px; }
+.default-model-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.default-model-grid label { display: grid; gap: 8px; min-width: 0; }
+.default-model-grid label > span { display: grid; gap: 3px; }
+.default-model-grid strong { font-size: 10px; }
+.default-model-grid small { color: var(--muted); font-size: 8px; line-height: 1.35; }
+.embedding-model-warning { padding-top: 11px; border-top: 1px solid var(--border); color: #7b6036 !important; }
 .admin-default-model h2, .admin-section-title h2 { margin: 0 0 4px; font-size: 13px; font-weight: 720; }
 .admin-default-model p, .admin-section-title p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .admin-default-model select {
@@ -1530,17 +1536,28 @@ button.admin-connector-catalog-item:hover { border-color: var(--border-strong); 
 .model-selection-heading h3 { margin: 0 0 4px; font-size: 13px; }
 .model-selection-heading p { margin: 0; color: var(--muted); font-size: 9px; }
 .model-selection-heading button { padding: 0; border: 0; background: transparent; color: #66676b; cursor: pointer; font-size: 10px; font-weight: 650; }
-.manual-model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 7px; }
+.manual-model-row { display: grid; grid-template-columns: minmax(0, 1fr) 130px 105px auto; gap: 8px; margin-top: 7px; }
+.manual-model-row select, .model-option-controls select, .model-option-controls input {
+    min-width: 0;
+    height: 44px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 10px;
+}
 .manual-model-row .secondary-button { min-width: 64px; }
 .model-option-list { display: grid; gap: 7px; margin-top: 4px; }
 .model-option-list > p { margin: 0; padding: 22px 12px; border: 1px dashed var(--border-strong); border-radius: 7px; color: var(--muted); text-align: center; font-size: 10px; }
 .model-option {
     display: grid;
-    grid-template-columns: 20px minmax(0, 1fr);
+    grid-template-columns: 20px minmax(0, 1fr) auto;
     align-items: center;
     gap: 9px;
-    min-height: 44px;
-    padding: 0 12px;
+    min-height: 56px;
+    padding: 6px 9px 6px 12px;
     border: 1px solid var(--border);
     border-radius: 7px;
     background: var(--surface);
@@ -1548,8 +1565,11 @@ button.admin-connector-catalog-item:hover { border-color: var(--border-strong); 
     font-size: 11px;
     font-weight: 620;
 }
+.model-option-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-option-controls { display: grid; grid-template-columns: 116px 92px; gap: 7px; }
+.model-option-controls select, .model-option-controls input { width: 100%; height: 38px; }
 .model-option:has(input:checked) { border-color: #b8ccef; background: #edf3fe; color: #225fcb; }
-.model-option input { width: 16px; height: 16px; accent-color: #2d69dc; }
+.model-option > input[type="checkbox"] { width: 16px; height: 16px; accent-color: #2d69dc; }
 .model-provider-footer { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 9px; padding: 16px 26px 20px; border-top: 1px solid var(--border); background: var(--surface); }
 .model-provider-footer .primary-button, .model-provider-footer .secondary-button, .danger-outline-button { min-height: 40px; padding: 0 15px; }
 .danger-outline-button { border: 1px solid #efc4c1; border-radius: 7px; background: #fffafa; color: var(--danger); cursor: pointer; font-size: 10px; font-weight: 650; }
@@ -1802,7 +1822,8 @@ button.admin-connector-catalog-item:hover { border-color: var(--border-strong); 
     .agent-history-columns { grid-template-columns: 1fr; }
     .agent-builder-danger { align-items: stretch; flex-direction: column; }
     .agent-builder-danger button { justify-content: center; }
-    .admin-default-model { grid-template-columns: 1fr; gap: 13px; margin: 24px 0 30px; }
+    .admin-default-model { gap: 13px; margin: 24px 0 30px; }
+    .default-model-grid { grid-template-columns: 1fr; }
     .provider-catalog-grid { grid-template-columns: 1fr; }
     .admin-summary-strip, .document-summary-strip, .index-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .admin-summary-strip > div:nth-child(3) { border-left: 0; border-top: 1px solid var(--border); }
@@ -1834,6 +1855,11 @@ button.admin-connector-catalog-item:hover { border-color: var(--border-strong); 
     .model-provider-dialog form { max-height: calc(var(--viewport-height) - 20px); }
     .model-provider-header { padding: 19px 18px 16px; }
     .model-provider-body { padding: 17px 18px 20px; }
+    .manual-model-row { grid-template-columns: minmax(0, 1fr) 112px; }
+    .manual-model-row #manualModelDimensions { grid-column: 1; }
+    .manual-model-row .secondary-button { grid-column: 2; grid-row: 2; }
+    .model-option { grid-template-columns: 20px minmax(0, 1fr); }
+    .model-option-controls { grid-column: 2; grid-template-columns: minmax(0, 1fr) 92px; width: 100%; }
     .model-provider-identity h2 { font-size: 17px; }
     .model-provider-identity p { font-size: 9px; }
     .model-provider-footer { grid-template-columns: 1fr 1fr; padding: 13px 18px 16px; }

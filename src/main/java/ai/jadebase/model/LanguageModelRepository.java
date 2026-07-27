@@ -9,6 +9,8 @@ import java.util.UUID;
 public interface LanguageModelRepository extends JpaRepository<LanguageModel, UUID> {
     List<LanguageModel> findByProviderIdOrderByCreatedAtAsc(UUID providerId);
     Optional<LanguageModel> findByProviderIdAndModelId(UUID providerId, String modelId);
-    Optional<LanguageModel> findFirstByDefaultModelTrueAndEnabledTrueOrderByCreatedAtAsc();
-    Optional<LanguageModel> findFirstByEnabledTrueOrderByCreatedAtAsc();
+    Optional<LanguageModel> findFirstByCapabilityAndDefaultModelTrueAndEnabledTrueOrderByCreatedAtAsc(
+            LanguageModel.Capability capability);
+    Optional<LanguageModel> findFirstByCapabilityAndEnabledTrueOrderByCreatedAtAsc(
+            LanguageModel.Capability capability);
 }
